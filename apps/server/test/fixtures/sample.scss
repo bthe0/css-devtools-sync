@@ -1,0 +1,19 @@
+// This is a real .scss fixture used by apply-css.test.ts.
+// It intentionally uses `//` line comments in more than just the header —
+// vanilla postcss.parse() chokes on these outside of url(); postcss-scss
+// must be used for any .scss/.sass target.
+
+$brand-color: #ff0000;
+
+.card {
+  color: red; // inline comment right after a declaration
+  margin-top: 8px;
+
+  // comment sitting alone between declarations
+  padding: 4px;
+}
+
+// comment between top-level rules
+.btn {
+  padding: 4px;
+}

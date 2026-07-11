@@ -1,0 +1,16 @@
+{
+  "name": "css-devtools-sync",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm --filter \"./packages/*\" build && pnpm -r typecheck",
+    "dev": "pnpm --filter @css-sync/server dev",
+    "test": "pnpm -r test"
+  },
+  "packageManager": "pnpm@10.12.1",
+  "engines": {
+    "node": ">=20"
+  }
+}

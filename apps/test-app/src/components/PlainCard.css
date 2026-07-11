@@ -1,0 +1,78 @@
+/* PlainCard — hand-authored plain CSS. Tier target: postcss AST match.
+   Every declaration here is intentionally "obvious to tweak" in DevTools. */
+
+.plain-card {
+  background-color: #1a1d2a;
+  border: 1px solid #2c3044;
+  border-radius: 12px;
+  padding: 24px;
+  max-width: 420px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  transition: transform 150ms ease;
+}
+
+.plain-card:hover {
+  transform: translateY(-2px);
+}
+
+.plain-card__title {
+  font-size: 20px;
+  font-weight: 600;
+  color: #f3f4f8;
+  margin: 0 0 8px;
+}
+
+.plain-card__body {
+  line-height: 1.6;
+  color: #a2a7b8;
+  margin: 0 0 16px;
+}
+
+.plain-card__badge {
+  display: inline-block;
+  background-color: #4f46e5;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+
+.plain-card__toggle {
+  margin-left: 12px;
+  background: none;
+  border: 1px solid #3b3f55;
+  color: #a2a7b8;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.plain-card__toggle:hover {
+  border-color: #6366f1;
+  color: #e6e8ee;
+}
+
+.plain-card__details {
+  margin-top: 16px;
+  font-size: 13px;
+  color: #8b90a0;
+  border-top: 1px dashed #2c3044;
+  padding-top: 12px;
+}
+
+/* Existing @media block — exercises the "modify a declaration INSIDE an
+   existing @media" flow. Adding a brand-new @media in DevTools exercises the
+   add-new-@media / placement flow against this same file. */
+@media (max-width: 600px) {
+  .plain-card {
+    padding: 16px;
+    border-radius: 8px;
+    max-width: 100%;
+  }
+
+  .plain-card__title {
+    font-size: 17px;
+  }
+}

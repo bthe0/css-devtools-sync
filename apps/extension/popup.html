@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header class="p-head">
+      <span class="p-dot" id="p-dot"></span>
+      <span class="p-name">CSS DevTools Sync</span>
+    </header>
+
+    <label class="p-row p-toggle">
+      <input id="autosave" type="checkbox" />
+      <span>
+        <span class="p-title">Autosave</span>
+        <span class="p-sub">Write source on every settled DevTools edit</span>
+      </span>
+    </label>
+
+    <button id="sync-now" type="button" class="p-btn">Sync now</button>
+    <p id="sync-note" class="p-note hidden"></p>
+
+    <div class="p-row p-shortcut">
+      <span class="p-title">Sync-now shortcut</span>
+      <kbd id="shortcut">⌘⇧S</kbd>
+    </div>
+    <a id="shortcut-link" class="p-link" href="#">Change shortcut…</a>
+
+    <p class="p-foot">Edits sync to <code>127.0.0.1:7777</code></p>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

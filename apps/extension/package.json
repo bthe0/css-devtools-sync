@@ -1,0 +1,10 @@
+{
+  "name": "@css-sync/extension",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Chrome DevTools extension: CDP capture engine + Source Sync panel. Not published; loaded unpacked from apps/extension.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test background/*.test.js"
+  }
+}

@@ -1,0 +1,48 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* App shell — plain global CSS (also a valid Tier-4 postcss target). */
+body {
+  margin: 0;
+  font-family:
+    "Inter",
+    system-ui,
+    -apple-system,
+    sans-serif;
+  background-color: #0f1117;
+  color: #e6e8ee;
+}
+
+.app-shell {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 32px 24px 96px;
+}
+
+.app-title {
+  font-size: 28px;
+  font-weight: 700;
+  margin: 0 0 4px;
+}
+
+.app-subtitle {
+  color: #8b90a0;
+  margin: 0 0 40px;
+  font-size: 15px;
+}
+
+.tier-section {
+  margin-bottom: 48px;
+}
+
+.tier-heading {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #6ee7b7;
+  margin: 0 0 12px;
+  border-bottom: 1px solid #232636;
+  padding-bottom: 8px;
+}

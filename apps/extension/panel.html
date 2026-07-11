@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="panel.css" />
+  </head>
+  <body>
+    <header class="toolbar">
+      <span id="connection" class="badge badge-off" title="chrome.debugger attach state">detached</span>
+      <span id="element-badge" class="badge badge-el hidden"></span>
+      <span id="autosave-badge" class="badge badge-off hidden" title="autosave state">autosave off</span>
+      <span class="spacer"></span>
+      <button id="clear-btn" type="button" disabled>Clear</button>
+      <button id="verify-btn" type="button" disabled>Verify</button>
+      <button id="sync-btn" type="button" class="primary" disabled>Sync to source</button>
+      <div class="settings-wrap">
+        <button id="settings-btn" type="button" class="icon-btn" aria-haspopup="true" aria-expanded="false" title="Settings">⚙</button>
+        <div id="settings-popover" class="popover hidden" role="dialog" aria-label="Sync settings">
+          <label class="pop-row">
+            <input id="autosave-toggle" type="checkbox" />
+            <span>
+              <span class="pop-title">Autosave</span>
+              <span class="pop-sub">Write source on every settled DevTools edit</span>
+            </span>
+          </label>
+          <div class="pop-row pop-shortcut">
+            <span class="pop-title">Sync now</span>
+            <kbd id="shortcut-hint">⌘⇧S</kbd>
+          </div>
+          <a id="shortcut-link" class="pop-link" href="#">Change shortcut…</a>
+        </div>
+      </div>
+    </header>
+
+    <div id="banner" class="banner hidden" role="alert"></div>
+
+    <main id="changes-region">
+      <div id="empty-state" class="empty-state">
+        <div class="empty-icon">{ }</div>
+        <p class="empty-title">No changes captured yet</p>
+        <p class="empty-hint">
+          Edit CSS in the <strong>Styles</strong> panel, or attributes/text in the
+          <strong>Elements</strong> panel — every tweak shows up here, ready to sync
+          back to your source files.
+        </p>
+        <p class="empty-note">
+          Note: Chrome shows a yellow “started debugging this browser” banner while
+          capture is active. That's expected — clicking Cancel on it stops capture.
+        </p>
+      </div>
+      <ul id="change-list" class="change-list hidden"></ul>
+    </main>
+
+    <section id="result-area" class="result-area hidden">
+      <h2 class="result-heading">Last sync</h2>
+      <div id="result-body"></div>
+    </section>
+
+    <script src="panel.js"></script>
+  </body>
+</html>

@@ -1,0 +1,36 @@
+{
+  "name": "@css-sync/server",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Local deterministic apply engine: receives CapturePayload from the DevTools extension, edits workspace source files, returns ApplyResult",
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@babel/core": "^7.27.0",
+    "@babel/parser": "^7.27.0",
+    "@css-sync/contract": "workspace:*",
+    "@fastify/cors": "^11.0.0",
+    "fastify": "^5.3.0",
+    "postcss": "^8.5.0",
+    "postcss-scss": "^4.0.9",
+    "recast": "^0.23.11",
+    "source-map-js": "^1.2.1",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.1.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

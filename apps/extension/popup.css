@@ -1,0 +1,52 @@
+:root {
+  --bg: #ffffff; --fg: #202124; --muted: #5f6368; --border: #dadce0;
+  --accent: #1a73e8; --ok: #188038; --warn: #e37400; --chip: #f1f3f4;
+  --mono: "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #202124; --fg: #e8eaed; --muted: #9aa0a6; --border: #3c4043;
+    --accent: #8ab4f8; --ok: #81c995; --warn: #fdd663; --chip: #303134;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; width: 280px; padding: 12px;
+  font: 13px/1.5 system-ui, sans-serif;
+  background: var(--bg); color: var(--fg);
+}
+.hidden { display: none !important; }
+
+.p-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.p-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: 0 0 auto; }
+.p-dot.on { background: var(--ok); }
+.p-dot.off { background: var(--muted); }
+.p-name { font-weight: 600; }
+
+.p-row { display: flex; align-items: flex-start; gap: 8px; }
+.p-toggle { padding: 8px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
+.p-toggle input { margin-top: 2px; }
+.p-title { display: block; font-weight: 600; }
+.p-sub { display: block; color: var(--muted); font-size: 11px; }
+
+.p-btn {
+  width: 100%; margin-top: 10px; padding: 8px 10px;
+  background: var(--accent); color: #fff; border: none; border-radius: 8px;
+  font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.p-btn:disabled { opacity: 0.6; cursor: default; }
+
+.p-note { margin: 6px 0 0; font-size: 11px; }
+.p-note.ok { color: var(--ok); }
+.p-note.warn { color: var(--warn); }
+
+.p-shortcut { align-items: center; justify-content: space-between; margin-top: 12px; }
+kbd {
+  font-family: var(--mono); font-size: 11px; padding: 2px 6px;
+  border: 1px solid var(--border); border-radius: 5px; background: var(--chip);
+}
+.p-link { display: inline-block; margin-top: 4px; font-size: 11px; color: var(--accent); text-decoration: none; }
+.p-link:hover { text-decoration: underline; }
+
+.p-foot { margin: 12px 0 0; color: var(--muted); font-size: 11px; }
+.p-foot code { font-family: var(--mono); }

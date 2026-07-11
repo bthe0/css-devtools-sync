@@ -1,0 +1,65 @@
+/* ScssPanel — Sass CSS module. Tier target: sourcemap lookup. */
+/* Vite emits dev sourcemaps (css.devSourcemap: true), so compiled declarations */
+/* map back to these exact lines. Variables + nesting make the compiled output */
+/* deliberately DIFFERENT from the source, forcing a real sourcemap round-trip. */
+
+@use "sass:color";
+
+$panel-bg: #161927;
+$panel-border: #2a2e42;
+$accent: #f59e0b;
+$row-hover: rgba(245, 158, 11, 0.08);
+
+.panel {
+  background-color: $panel-bg;
+  border: 1px solid $panel-border;
+  border-radius: 10px;
+  max-width: 420px;
+  overflow: hidden;
+
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    background-color: color.adjust($panel-bg, $lightness: -3%);
+    border-bottom: 2px solid $accent;
+
+    h3 {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 600;
+      color: #f3f4f8;
+    }
+
+    .count {
+      font-size: 12px;
+      color: $accent;
+      font-weight: 700;
+    }
+  }
+
+  .row {
+    display: flex;
+    justify-content: space-between;
+    padding: 11px 18px;
+    font-size: 13px;
+    color: #a2a7b8;
+    border-bottom: 1px solid rgba(42, 46, 66, 0.6);
+    cursor: default;
+
+    &:last-child {
+      border-bottom: none;
+    }
+
+    &:hover {
+      background-color: $row-hover;
+      color: #e6e8ee;
+    }
+
+    .value {
+      font-variant-numeric: tabular-nums;
+      color: #d3d6e0;
+    }
+  }
+}

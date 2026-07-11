@@ -1,0 +1,15 @@
+/* CSS-module fixture: source keeps plain author-written class names; the
+   COMPILED output hashes them (e.g. ".title" -> ".title__x7a9"). Used to
+   prove apply-css.ts's position-based fallback (pickRuleForChange ->
+   pickRuleAtPosition): a change carrying a hashed selector that matches
+   NOTHING in this file by name must still land on the right rule when a
+   sourcemap-mapped source position is supplied. */
+
+.card {
+  padding: 12px;
+}
+
+.title {
+  color: #222222;
+  font-size: 14px;
+}

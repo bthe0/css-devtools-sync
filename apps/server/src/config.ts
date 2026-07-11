@@ -1,0 +1,78 @@
+import fs from "node:fs";
+import path from "node:path";
+import { z } from "zod";
+
+/** Treat empty-string env vars as unset so defaults apply. */
+const emptyToUndef = (v: unknown): unknown => (v === "" ? undefined : v);
+
+/** Chrome extension ids are 32 lowercase a-p characters (base16 over that alphabet). */
+const EXTENSION_ID_RE = /^[a-p]{32}$/;
+
+const EnvSchema = z.object({
+  CSS_SYNC_WORKSPACE_ROOT: z.preprocess(emptyToUndef, z.string().min(1)),
+  PORT: z.preprocess(emptyToUndef, z.coerce.number().int().min(1).max(65535).default(7777)),
+  APP_ENV: z.preprocess(
+    emptyToUndef,
+    z.enum(["development", "test", "production"]).default("development"),
+  ),
+  ANTHROPIC_API_KEY: z.preprocess(emptyToUndef, z.string().min(1).optional()),
+  /** When set, CORS allows ONLY chrome-extension://<this id> (see server.ts). */
+  EXTENSION_ID: z.preprocess(
+    emptyToUndef,
+    z.string().regex(EXTENSION_ID_RE, "EXTENSION_ID must be 32 lowercase a-p characters").optional(),
+  ),
+  /** When set, /apply and /verify require a matching x-sync-token header. */
+  SYNC_TOKEN: z.preprocess(emptyToUndef, z.string().min(1).optional()),
+  /**
+   * Workspace-relative stylesheet that promoted inline-style edits are written
+   * into (as `.csync-* { ... }` rules). Must already be imported globally by
+   * the app so the generated class takes effect. Defaults to src/index.css.
+   */
+  CSS_SYNC_OVERRIDES_FILE: z.preprocess(emptyToUndef, z.string().min(1).default("src/index.css")),
+});
+
+export interface Config {
+  /** realpath-resolved absolute workspace root; every write is jailed under it. */
+  readonly workspaceRoot: string;
+  readonly port: number;
+  readonly appEnv: "development" | "test" | "production";
+  readonly anthropicApiKey: string | undefined;
+  readonly extensionId: string | undefined;
+  readonly syncToken: string | undefined;
+  /** Workspace-relative overrides stylesheet for promoted inline-style edits. */
+  readonly overridesFile: string;
+}
+
+/** Read + validate configuration from the environment. Throws (fail fast) on any problem. */
+export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
+  const parsed = EnvSchema.safeParse(env);
+  if (!parsed.success) {
+    const detail = parsed.error.issues
+      .map((i) => `${i.path.join(".") || "env"}: ${i.message}`)
+      .join("; ");
+    throw new Error(`Invalid configuration: ${detail}`);
+  }
+
+  const rootInput = path.resolve(parsed.data.CSS_SYNC_WORKSPACE_ROOT);
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(rootInput);
+  } catch {
+    throw new Error(`Invalid configuration: CSS_SYNC_WORKSPACE_ROOT does not exist: ${rootInput}`);
+  }
+  if (!stat.isDirectory()) {
+    throw new Error(
+      `Invalid configuration: CSS_SYNC_WORKSPACE_ROOT is not a directory: ${rootInput}`,
+    );
+  }
+
+  return {
+    workspaceRoot: fs.realpathSync(rootInput),
+    port: parsed.data.PORT,
+    appEnv: parsed.data.APP_ENV,
+    anthropicApiKey: parsed.data.ANTHROPIC_API_KEY,
+    extensionId: parsed.data.EXTENSION_ID,
+    syncToken: parsed.data.SYNC_TOKEN,
+    overridesFile: parsed.data.CSS_SYNC_OVERRIDES_FILE,
+  };
+}

@@ -1,0 +1,47 @@
+/* ModuleCard — plain CSS Module (NOT Sass). Tier target: hashed-selector ->
+   source demangle. Vite hashes these class names at build/dev time (e.g.
+   `_card_1a2b3c`), so the sync server must resolve the runtime class back to
+   this file via the CSS Modules identifier map, not a sourcemap (contrast
+   with ScssPanel, which is Sass and resolves via `css.devSourcemap`). */
+
+.card {
+  background-color: #1f1a2e;
+  border: 1px solid #382c4f;
+  border-radius: 12px;
+  padding: 20px;
+  max-width: 420px;
+  color: #d9d5e8;
+}
+
+.card:hover {
+  border-color: #7c5cf0;
+}
+
+.title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #f3f0fb;
+  margin: 0 0 6px;
+}
+
+.body {
+  font-size: 13px;
+  line-height: 1.5;
+  color: #a89fc2;
+  margin: 0 0 14px;
+}
+
+.action {
+  background-color: #7c5cf0;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 14px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.action:hover {
+  background-color: #6842e8;
+}

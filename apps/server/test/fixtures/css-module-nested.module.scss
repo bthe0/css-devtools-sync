@@ -1,0 +1,13 @@
+// Sass-module fixture with REAL nesting: a rule nested inside its parent
+// selector. Proves the position fallback locates the INNERMOST rule (the
+// nested one), not the outer parent — and that it works for .module.scss
+// (Sass), not just plain .module.css.
+
+.panel {
+  background: #ffffff;
+
+  .header {
+    color: #111111;
+    font-weight: 600;
+  }
+}
