@@ -32,11 +32,29 @@ const PROPERTY_RE = /^(--[a-zA-Z0-9-]+|[a-zA-Z][a-zA-Z0-9-]*)$/;
 
 const normalizeSelector = (s: string): string => s.replace(/\s+/g, " ").trim();
 
+/** One computed file edit awaiting preview/commit (structurally = apply.ts PlannedWrite). */
+export interface PromoteWrite {
+  /** Absolute jailed path of the file to write. */
+  absFile: string;
+  /** Workspace-relative path (for outcome/journal reporting). */
+  relFile: string;
+  /** Current on-disk content. */
+  before: string;
+  /** Computed content (equals `before` when this file is unchanged). */
+  after: string;
+}
+
 export interface InlinePromoteResult {
   /** Workspace-relative path of the JSX/HTML file the class was added to. */
   file: string;
   line?: number | undefined;
   note?: string | undefined;
+  /**
+   * The two computed writes (JSX className edit, then overrides stylesheet
+   * upsert), in commit order. Nothing is written here — the caller previews or
+   * commits. A file whose `before === after` is a no-op the caller skips.
+   */
+  writes: PromoteWrite[];
 }
 
 /** Deterministic pretty raws for a rule whose body we just (re)built. */
@@ -202,14 +220,26 @@ export function applyInlinePromote(
   const overridesCss = overridesExists ? fs.readFileSync(overridesAbs, "utf8") : "";
   const upsert = upsertOverrideRule(overridesCss, change.className, change.declarations);
 
-  // (3) both computed safely — now write. JSX first (source of truth for the
-  // class), then the stylesheet.
-  if (classEdit.code !== classEdit.original) {
-    fs.writeFileSync(classEdit.file, classEdit.code, "utf8");
-  }
-  if (!overridesExists || upsert.css !== overridesCss) {
-    fs.writeFileSync(overridesAbs, upsert.css, "utf8");
-  }
+  // (3) both computed safely — emit the two planned writes in commit order
+  // (JSX first: it's the source of truth for the class, then the stylesheet).
+  // Writing is the caller's job (preview shows the diffs; commit persists +
+  // journals each). A file whose before === after is a no-op the caller skips.
+  const jsxRel = toWorkspaceRelative(cfg.workspaceRoot, classEdit.file);
+  const overridesRel = toWorkspaceRelative(cfg.workspaceRoot, overridesAbs);
+  const writes: PromoteWrite[] = [
+    {
+      absFile: classEdit.file,
+      relFile: jsxRel,
+      before: classEdit.original,
+      after: classEdit.code,
+    },
+    {
+      absFile: overridesAbs,
+      relFile: overridesRel,
+      before: overridesCss,
+      after: upsert.css,
+    },
+  ];
 
   const noteParts = [
     `promoted inline style to .${change.className} in ${cfg.overridesFile}`,
@@ -218,8 +248,9 @@ export function applyInlinePromote(
   if (classEdit.note) noteParts.push(classEdit.note);
 
   return {
-    file: toWorkspaceRelative(cfg.workspaceRoot, classEdit.file),
+    file: jsxRel,
     line: classEdit.line,
     note: noteParts.join("; "),
+    writes,
   };
 }

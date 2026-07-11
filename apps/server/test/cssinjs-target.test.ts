@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyBaseLogger } from "fastify";
-import type { CapturePayload, ModifyChange } from "@css-sync/contract";
+import type { CapturePayloadInput, ModifyChange } from "@css-sync/contract";
 import type { Config } from "../src/config.js";
 import { SkipChangeError } from "../src/errors.js";
 import {
@@ -100,6 +100,8 @@ function makeCfg(workspaceRoot: string): Config {
     extensionId: undefined,
     syncToken: undefined,
     overridesFile: "src/index.css",
+    // Journal inside the temp workspace tree — cleaned in afterEach, never the real home.
+    journalDir: path.join(workspaceRoot, ".css-sync-journal"),
   };
 }
 
@@ -163,9 +165,10 @@ describe("chooseTemplateLine (deterministic)", () => {
   it("picks the only template holding the edited property", async () => {
     const cfg = makeCfg("/");
     // Pill has gap; Dot does not — gap edit must target Pill.
-    const line = await chooseTemplateLine(cfg, "StyledBadge.tsx", STYLED_SRC, styledModify(), nullLog);
+    const res = await chooseTemplateLine(cfg, "StyledBadge.tsx", STYLED_SRC, styledModify(), nullLog);
     // `const Pill = styled.span\`` is on line 3 (1-based).
-    expect(line).toBe(3);
+    expect(res.line).toBe(3);
+    expect(res.confidence).toBe("deterministic");
   });
 
   it("disambiguates by oldValue when multiple templates share the property", async () => {
@@ -177,8 +180,8 @@ describe("chooseTemplateLine (deterministic)", () => {
       newValue: "16px",
       element: { tagName: "button", classList: ["EmotionButton__x-1"] },
     });
-    const line = await chooseTemplateLine(cfg, "EmotionButton.tsx", EMOTION_SRC, change, nullLog);
-    expect(line).toBe(7); // `const StyledButton = styled.button\``
+    const res = await chooseTemplateLine(cfg, "EmotionButton.tsx", EMOTION_SRC, change, nullLog);
+    expect(res.line).toBe(7); // `const StyledButton = styled.button\``
   });
 
   it("throws when the file has no styled/css template at all", async () => {
@@ -214,9 +217,10 @@ describe("E2E through /apply — styled-components edit writes the template", ()
     const app = await buildServer(makeCfg(root));
     apps.push(app);
 
-    const payload: CapturePayload = {
+    const payload: CapturePayloadInput = {
       url: "http://localhost:5199/",
       changes: [styledModify()],
+      applyMode: "commit", // exercise the write path (default is preview/no-write)
     };
     const res = await app.inject({ method: "POST", url: "/apply", payload });
     expect(res.statusCode).toBe(200);

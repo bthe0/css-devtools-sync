@@ -14,7 +14,18 @@ import type {
 } from "@css-sync/contract";
 import { applyCssChange } from "../src/apply-css.js";
 import { applyCssInJsChange } from "../src/cssinjs.js";
-import { applyJsxChange } from "../src/apply-jsx.js";
+import { applyJsxChange as applyJsxChangePure } from "../src/apply-jsx.js";
+
+// apply-jsx.ts is now a PURE writer (computes { file, before, after }, no fsync).
+// This fidelity suite asserts the persisted file, so wrap the pure call to
+// persist `after` — the single-file JSX writer only ever touches its own file.
+function applyJsxChange(
+  ...args: Parameters<typeof applyJsxChangePure>
+): ReturnType<typeof applyJsxChangePure> {
+  const res = applyJsxChangePure(...args);
+  if (res.before !== res.after) fs.writeFileSync(res.file, res.after, "utf8");
+  return res;
+}
 import { applyClassListChange } from "../src/classlist.js";
 import { SkipChangeError } from "../src/errors.js";
 
@@ -164,7 +175,9 @@ describe("fidelity matrix — apply-css.ts structural invariants", () => {
     } satisfies ModifyChange);
     const root = postcss.parse(res.css);
     let ruleCount = 0;
-    root.walkRules(() => ruleCount++);
+    root.walkRules(() => {
+      ruleCount++;
+    });
     expect(ruleCount).toBe(1);
   });
 
@@ -182,7 +195,9 @@ describe("fidelity matrix — apply-css.ts structural invariants", () => {
     });
     const root = postcss.parse(res.css);
     let ruleCount = 0;
-    root.walkRules(() => ruleCount++);
+    root.walkRules(() => {
+      ruleCount++;
+    });
     expect(ruleCount).toBe(3); // .card + .a + .b
     expect(res.css).toContain(".a {");
     expect(res.css).toContain(".b {");

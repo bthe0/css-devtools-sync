@@ -4,10 +4,28 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
-import type { CapturePayload, PromoteInlineStyleChange } from "@css-sync/contract";
+import type { CapturePayloadInput, PromoteInlineStyleChange } from "@css-sync/contract";
 import { CaptureChangeSchema } from "@css-sync/contract";
 import type { Config } from "../src/config.js";
-import { applyInlinePromote } from "../src/apply-inline-promote.js";
+import { applyInlinePromote as applyInlinePromotePure } from "../src/apply-inline-promote.js";
+
+/**
+ * applyInlinePromote is now PURE — it returns the two computed `writes` (JSX
+ * className edit + overrides upsert) and persists nothing; the apply.ts spine
+ * decides preview vs commit. These unit tests predate that split and read the
+ * files off disk, so this wrapper restores commit-immediately by writing each
+ * changed write. before === after writes are no-ops (skipped), matching the
+ * spine's own commit behavior.
+ */
+function applyInlinePromote(
+  ...args: Parameters<typeof applyInlinePromotePure>
+): ReturnType<typeof applyInlinePromotePure> {
+  const res = applyInlinePromotePure(...args);
+  for (const w of res.writes) {
+    if (w.before !== w.after) fs.writeFileSync(w.absFile, w.after, "utf8");
+  }
+  return res;
+}
 import { SkipChangeError } from "../src/errors.js";
 import { buildServer } from "../src/server.js";
 
@@ -57,6 +75,8 @@ function makeCfg(workspaceRoot: string): Config {
     extensionId: undefined,
     syncToken: undefined,
     overridesFile: "src/index.css",
+    // Journal inside the temp workspace tree — cleaned in afterEach, never the real home.
+    journalDir: path.join(workspaceRoot, ".css-sync-journal"),
   };
 }
 
@@ -311,9 +331,10 @@ describe("promote-inline-style — end-to-end through /apply (routing + mode + c
     const { root, srcDir, componentsDir } = makeWorkspace("");
     const app = await makeApp(root);
 
-    const payload: CapturePayload = {
+    const payload: CapturePayloadInput = {
       url: "http://localhost:5173/#static",
       changes: [promoteChange("csync-e2e", [{ property: "color", value: "#abcdef" }])],
+      applyMode: "commit", // exercise the write path (default is preview/no-write)
     };
     const res = await app.inject({ method: "POST", url: "/apply", payload });
     expect(res.statusCode).toBe(200);

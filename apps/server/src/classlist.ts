@@ -423,6 +423,20 @@ export function computeElementClassEdit(
 }
 
 /**
+ * PURE (no write): map a Tailwind-target change to its className token edit and
+ * compute the resulting source. The two-phase apply spine calls this to capture
+ * a preview diff or to commit + journal the write itself. Throws SkipChangeError
+ * on any unmappable / unlocatable condition, exactly like applyClassListChange.
+ */
+export function computeClassListChange(
+  workspaceRoot: string,
+  change: ClasslistChange,
+): ElementClassEdit {
+  const { remove, add } = tokenEdits(change);
+  return computeElementClassEdit(workspaceRoot, change.element as ElementContext, remove, add);
+}
+
+/**
  * Tailwind mode: never edit generated CSS — edit the element's className in
  * its JSX/HTML source, located via data-source-file / data-source-line.
  */
@@ -430,8 +444,7 @@ export function applyClassListChange(
   workspaceRoot: string,
   change: ClasslistChange,
 ): ClasslistApplyResult {
-  const { remove, add } = tokenEdits(change);
-  const edit = computeElementClassEdit(workspaceRoot, change.element as ElementContext, remove, add);
+  const edit = computeClassListChange(workspaceRoot, change);
   if (edit.code !== edit.original) fs.writeFileSync(edit.file, edit.code, "utf8");
   return { file: edit.file, line: edit.line, note: edit.note };
 }

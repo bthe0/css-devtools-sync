@@ -25,6 +25,9 @@ function makeCfg(overrides: Partial<Config> = {}): Config {
     extensionId: undefined,
     syncToken: undefined,
     overridesFile: "src/index.css",
+    // Keep the write journal inside the temp tree so commit-mode tests never
+    // pollute the real ~/.css-sync/journal; cleaned with `root` in afterEach.
+    journalDir: path.join(root, ".css-sync-journal"),
     ...overrides,
   };
 }
@@ -153,7 +156,8 @@ describe("SYNC_TOKEN gating", () => {
       payload: { url: "http://x", changes: [] },
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ applied: [], skipped: [], needsPlacement: [] });
+    // default applyMode is preview → committed:false; empty changes → empty buckets.
+    expect(res.json()).toEqual({ applied: [], skipped: [], needsPlacement: [], committed: false });
   });
 
   it("rejects /verify with 401 when the token is missing", async () => {
@@ -197,7 +201,8 @@ describe("/apply payload edge cases", () => {
     apps.push(app);
     const res = await app.inject({ method: "POST", url: "/apply", payload: { url: "http://x", changes: [] } });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ applied: [], skipped: [], needsPlacement: [] });
+    // default applyMode is preview → committed:false; empty changes → empty buckets.
+    expect(res.json()).toEqual({ applied: [], skipped: [], needsPlacement: [], committed: false });
   });
 
   it("skips (not 500s) an add-decl change against an unknown selector", async () => {

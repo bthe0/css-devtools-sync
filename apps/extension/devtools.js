@@ -7,9 +7,13 @@
 //   3. debounces captured CSS/DOM edits and autosaves them to source, and
 //   4. shows an in-page toast (via the content script) on each save.
 //
-// There is deliberately no `chrome.devtools.panels.create(...)` here: the old
-// "Source Sync" panel is gone. All state lives in this context; the service
-// worker (background/service-worker.js) is the CDP engine and toast relay.
+// The "Source Sync" panel (panel.html/panel.js) is registered below and reads
+// this context's pending-changes map over a SEPARATE port
+// ("css-sync-preview") — it never re-attaches its own chrome.debugger session
+// (that would steal this one; sessions are keyed by tabId). While the panel is
+// open, autosave here pauses (captured edits still accumulate) so the user can
+// preview/apply/discard instead of edits silently auto-committing underneath
+// them; closing the panel resumes autosave and flushes anything pending.
 
 "use strict";
 
@@ -75,6 +79,17 @@ let selectedElement = null;
 let attached = false;
 let syncing = false;
 
+/**
+ * Recent skipped/rejected capture attempts, newest last — mirrored to the
+ * Source Sync panel (display-only there) via postPendingSnapshot(). Capped so
+ * a churny dynamic element can't grow this without bound.
+ */
+const skips = [];
+const MAX_SKIPS = 50;
+
+/** True while the Source Sync panel is open for this tab — pauses autosave. */
+let pausedForPanel = false;
+
 // ---------------------------------------------------------------------------
 // Autosave preference (shared with the toolbar popup via chrome.storage.local)
 // ---------------------------------------------------------------------------
@@ -99,7 +114,7 @@ chrome.storage.onChanged.addListener((changed, area) => {
 });
 
 function scheduleAutosave() {
-  if (!autosave) return;
+  if (!autosave || pausedForPanel) return;
   clearTimeout(autosaveTimer);
   autosaveTimer = setTimeout(() => {
     autosaveTimer = null;
@@ -131,6 +146,31 @@ function toastRaw(text, kind /* "info" | "warn" */) {
   } catch {
     /* port gone */
   }
+}
+
+/**
+ * Mirrors the current pending-changes map (+ recent skips) to the service
+ * worker, which relays it to any open Source Sync panel for this tab (see
+ * "css-sync-preview" in background/service-worker.js). Called after every
+ * mutation to `changes`/`skips` so the panel's read-only view stays live.
+ */
+function postPendingSnapshot() {
+  try {
+    port.postMessage({
+      type: "pending-snapshot",
+      changes: [...changes.values()],
+      skips: [...skips],
+    });
+  } catch {
+    /* port gone; the panel will re-sync on reconnect via preview-subscribe */
+  }
+}
+
+/** Records a rejected/skipped capture attempt for the panel's history view. */
+function addSkip(reason, detail) {
+  skips.push({ reason, detail: detail ?? null, at: Date.now() });
+  if (skips.length > MAX_SKIPS) skips.splice(0, skips.length - MAX_SKIPS);
+  postPendingSnapshot();
 }
 
 // ---------------------------------------------------------------------------
@@ -179,7 +219,37 @@ function connectPort() {
         console.warn(`[css-sync] CDP error (${msg.context}): ${msg.message}`);
         break;
 
-      // "skip" and "element-context" are informational only in headless mode.
+      case "skip":
+        addSkip(msg.reason ?? "unknown", msg.detail);
+        break;
+
+      case "panel-open":
+        // Source Sync panel opened — pause autosave so captured edits wait for
+        // an explicit Preview/Apply instead of auto-committing underneath the
+        // user while they're looking at the panel.
+        pausedForPanel = true;
+        if (autosaveTimer) {
+          clearTimeout(autosaveTimer);
+          autosaveTimer = null;
+        }
+        postPendingSnapshot(); // panel just subscribed — send it the current state
+        break;
+
+      case "panel-closed":
+        // Panel closed — resume autosave and flush anything the user left
+        // pending (e.g. closed the panel without Discard/Apply).
+        pausedForPanel = false;
+        scheduleAutosave();
+        break;
+
+      case "drop-keys":
+        // Panel applied or discarded these changes itself (or hit Clear) —
+        // drop them here too so they aren't resurrected/re-autosaved.
+        for (const key of msg.keys ?? []) changes.delete(key);
+        postPendingSnapshot();
+        break;
+
+      // "element-context" is informational only in headless mode.
       default:
         break;
     }
@@ -286,12 +356,14 @@ function addChange(change) {
     if (prior && prior.op === "modify") change = { ...change, oldValue: prior.oldValue };
     if (change.oldValue === change.newValue) {
       changes.delete(key); // edited back to the original — nothing to sync
+      postPendingSnapshot();
       return;
     }
   }
 
   changes.set(key, change);
   scheduleAutosave();
+  postPendingSnapshot();
 }
 
 // ---------------------------------------------------------------------------
@@ -820,6 +892,11 @@ async function syncToSource(opts = {}) {
     const payload = {
       url: await getInspectedUrl(),
       changes: [...changes.values()],
+      // Headless autosave has no preview UI, so it must always request an
+      // immediate commit. The contract's applyMode defaults to "preview" —
+      // without this, autosave would silently stop writing anything the
+      // moment the server starts honoring that default.
+      applyMode: "commit",
     };
 
     let res;
@@ -888,6 +965,8 @@ async function syncToSource(opts = {}) {
       }
     }
 
+    postPendingSnapshot();
+
     if (toast && result.applied.length > 0) {
       toastSummary(result.applied, result.skipped.length);
     }
@@ -903,3 +982,13 @@ async function syncToSource(opts = {}) {
     syncing = false;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Source Sync panel registration
+//
+// The panel is a read-only mirror + preview/undo control surface (see the
+// header comment above) — it does not affect capture, which keeps running
+// here regardless of whether the panel is open.
+// ---------------------------------------------------------------------------
+
+chrome.devtools.panels.create("Source Sync", "", "panel.html", () => {});

@@ -9,6 +9,7 @@ import {
 import type { Config } from "./config.js";
 import { applyPayload, describeTemplate } from "./apply.js";
 import { SkipChangeError } from "./errors.js";
+import { registerJournalRoutes } from "./routes-journal.js";
 import { verifyChecks } from "./verify.js";
 import { WorkspaceError } from "./workspace.js";
 
@@ -171,6 +172,9 @@ export async function buildServer(cfg: Config): Promise<FastifyInstance> {
     }
     return verifyChecks(parsed.data);
   });
+
+  // GET /journal + POST /undo — same shared-token gate as /apply.
+  registerJournalRoutes(app, cfg, requireSyncToken(cfg));
 
   return app;
 }

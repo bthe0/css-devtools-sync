@@ -46,6 +46,8 @@ function makeCfg(overrides: Partial<Config> = {}): Config {
     extensionId: undefined,
     syncToken: undefined,
     overridesFile: "src/index.css",
+    // Journal inside the temp tree — cleaned in afterEach, never the real home.
+    journalDir: path.join(root, ".css-sync-journal"),
     ...overrides,
   };
 }
@@ -74,7 +76,8 @@ async function apply_(app: FastifyInstance, change: unknown) {
   const res = await app.inject({
     method: "POST",
     url: "/apply",
-    payload: { url: "http://localhost/x", changes: [change] },
+    // commit: this E2E asserts the file on disk (default applyMode is preview/no-write).
+    payload: { url: "http://localhost/x", changes: [change], applyMode: "commit" },
   });
   return res;
 }

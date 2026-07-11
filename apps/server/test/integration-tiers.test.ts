@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { SourceMapGenerator } from "source-map-js";
 import type { FastifyInstance } from "fastify";
-import type { CapturePayload } from "@css-sync/contract";
+import type { CapturePayload, CapturePayloadInput } from "@css-sync/contract";
 import type { Config } from "../src/config.js";
 import { buildServer } from "../src/server.js";
 
@@ -69,6 +69,8 @@ async function makeApp(workspaceRoot: string): Promise<FastifyInstance> {
     extensionId: undefined,
     syncToken: undefined,
     overridesFile: "src/index.css",
+    // Journal inside the temp workspace tree — cleaned in afterEach, never the real home.
+    journalDir: path.join(workspaceRoot, ".css-sync-journal"),
   };
   const app = await buildServer(cfg);
   apps.push(app);
@@ -92,8 +94,15 @@ interface ApplyResultLike {
   needsPlacement: unknown[];
 }
 
-async function postApply(app: FastifyInstance, payload: CapturePayload): Promise<ApplyResultLike> {
-  const res = await app.inject({ method: "POST", url: "/apply", payload });
+async function postApply(
+  app: FastifyInstance,
+  payload: CapturePayloadInput,
+  applyMode: "preview" | "commit" = "commit",
+): Promise<ApplyResultLike> {
+  // These integration tests exercise the WRITE pipeline, so they commit by
+  // default (applyMode now defaults to "preview" — a no-write dry run — at the
+  // contract boundary). Pass "preview" explicitly to assert the dry-run path.
+  const res = await app.inject({ method: "POST", url: "/apply", payload: { ...payload, applyMode } });
   expect(res.statusCode).toBe(200);
   return res.json() as ApplyResultLike;
 }
@@ -111,7 +120,7 @@ function dataUriSourceMap(source: string, line: number, column: number): string 
 // ---------------------------------------------------------------------------
 
 describe("integration: plain CSS tier (PlainCard.css)", () => {
-  function payload(): CapturePayload {
+  function payload(): CapturePayloadInput {
     const sheet = {
       id: "s-plain",
       sourceURL: "http://localhost:5173/src/components/PlainCard.css",
@@ -209,7 +218,7 @@ describe("integration: Sass module tier via sourcemap (ScssPanel.module.scss)", 
   const ORIGINAL_LINE = 14; // "  background-color: $panel-bg;"
   const ORIGINAL_COLUMN = 2;
 
-  function payload(selector = ".panel"): CapturePayload {
+  function payload(selector = ".panel"): CapturePayloadInput {
     return {
       url: "http://localhost:5173/#scss",
       changes: [
@@ -304,7 +313,7 @@ describe("integration: CSS Modules position-based demangle — plain .module.css
   const TITLE_LINE = 23; // "  color: #f3f0fb;" inside .title
   const TITLE_COLUMN = 2;
 
-  function hashedPayload(): CapturePayload {
+  function hashedPayload(): CapturePayloadInput {
     return {
       url: "http://localhost:5173/#module-card",
       changes: [
@@ -439,7 +448,7 @@ describe("integration: CSS-in-JS tier (EmotionButton.tsx)", () => {
   const ORIGINAL_LINE = 20; // "  border-radius: 8px;" inside the StyledButton template
   const ORIGINAL_COLUMN = 2;
 
-  function payload(property = "border-radius", oldValue = "8px", newValue = "14px"): CapturePayload {
+  function payload(property = "border-radius", oldValue = "8px", newValue = "14px"): CapturePayloadInput {
     return {
       url: "http://localhost:5173/#emotion",
       changes: [
@@ -533,7 +542,7 @@ describe("integration: CSS-in-JS PARITY tier — styled-components (StyledBadge.
     const { root, componentsDir } = makeWorkspace();
     const app = await makeApp(root);
 
-    const payload: CapturePayload = {
+    const payload: CapturePayloadInput = {
       url: "http://localhost:5173/#styled",
       changes: [change(PILL_LINE, ".StyledBadge__Pill-sc-abc123-0", "999px", "12px")],
     };
@@ -608,7 +617,7 @@ describe("integration: Tailwind classlist tier (TailwindHero.tsx)", () => {
   const SOURCE_REL = "src/components/TailwindHero.tsx";
   const HERO_LINE = 9; // <div className="rounded-2xl ... p-8 shadow-xl">
 
-  function payload(): CapturePayload {
+  function payload(): CapturePayloadInput {
     return {
       url: "http://localhost:5173/#tailwind",
       changes: [
@@ -717,7 +726,7 @@ describe("integration: markup tier — set-attr + set-text (StaticBlock.tsx)", (
   const NAV_LINE = 33; // <nav aria-label="Footer navigation" ...>
   const STRONG_LINE = 25; // <strong ...>css-devtools-sync</strong>
 
-  function payload(): CapturePayload {
+  function payload(): CapturePayloadInput {
     return {
       url: "http://localhost:5173/#static",
       changes: [
@@ -813,7 +822,7 @@ describe("integration: one CapturePayload spanning all five tiers", () => {
     const { root, componentsDir } = makeWorkspace();
     const app = await makeApp(root);
 
-    const payload: CapturePayload = {
+    const payload: CapturePayloadInput = {
       url: "http://localhost:5173/",
       changes: [
         {

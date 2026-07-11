@@ -11,7 +11,23 @@ import type {
   SetTextChange,
   SetTextSegmentChange,
 } from "@css-sync/contract";
-import { applyJsxChange, describeJsxTemplate } from "../src/apply-jsx.js";
+import { applyJsxChange as applyJsxChangePure, describeJsxTemplate } from "../src/apply-jsx.js";
+
+/**
+ * applyJsxChange is now PURE (it returns { file, before, after } and writes
+ * nothing — the apply.ts spine decides preview vs commit). These unit tests
+ * predate that split and assert against the file on disk, so this thin wrapper
+ * restores the old commit-immediately behavior: compute, then persist `after`.
+ * The pure function's own contract (before/after correctness) is covered by the
+ * integration + preview/commit suites.
+ */
+function applyJsxChange(
+  ...args: Parameters<typeof applyJsxChangePure>
+): ReturnType<typeof applyJsxChangePure> {
+  const res = applyJsxChangePure(...args);
+  if (res.before !== res.after) fs.writeFileSync(res.file, res.after, "utf8");
+  return res;
+}
 import { SkipChangeError } from "../src/errors.js";
 import { WorkspaceError } from "../src/workspace.js";
 

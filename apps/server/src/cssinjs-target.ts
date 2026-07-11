@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import type { FastifyBaseLogger } from "fastify";
-import type { AddDeclChange, DeleteDeclChange, ModifyChange } from "@css-sync/contract";
+import type { AddDeclChange, Confidence, DeleteDeclChange, ModifyChange } from "@css-sync/contract";
 import type { Config } from "./config.js";
 import { SkipChangeError } from "./errors.js";
 import { listTemplates, type TemplateInfo } from "./cssinjs.js";
@@ -262,11 +262,25 @@ async function llmChooseTemplate(
 }
 
 /**
+ * The template line a css-in-js change targets, plus how confidently it was
+ * chosen (see Phase 1c). `deterministic` = a unique structural match (single
+ * template, or exactly one template holding the property/value); `assisted` =
+ * an LLM tiebreak among several candidates (non-prod only); `fallback` = a
+ * first-match heuristic when nothing was unique and no LLM was available.
+ */
+export interface TemplateChoice {
+  line: number;
+  confidence: Confidence;
+  reason: string;
+}
+
+/**
  * Choose the 1-based line of the template a css-in-js change targets within
- * `code`. Deterministic when unambiguous; LLM-assisted (non-prod) otherwise;
- * always returns a best-guess line rather than throwing on ambiguity, because
- * applyCssInJsChange re-validates the declaration and safely skips a wrong pick.
- * Throws only when the file contains no styled/css template at all.
+ * `code`, and classify HOW it was chosen. Deterministic when unambiguous;
+ * LLM-assisted (non-prod) otherwise; always returns a best-guess line rather
+ * than throwing on ambiguity, because applyCssInJsChange re-validates the
+ * declaration and safely skips a wrong pick. Throws only when the file contains
+ * no styled/css template at all.
  */
 export async function chooseTemplateLine(
   cfg: Config,
@@ -274,12 +288,18 @@ export async function chooseTemplateLine(
   code: string,
   change: CssInJsChange,
   log: FastifyBaseLogger,
-): Promise<number> {
+): Promise<TemplateChoice> {
   const templates = listTemplates(code);
   if (templates.length === 0) {
     throw new SkipChangeError("no css/styled template literal found in the mapped source file");
   }
-  if (templates.length === 1) return templates[0]!.startLine;
+  if (templates.length === 1) {
+    return {
+      line: templates[0]!.startLine,
+      confidence: "deterministic",
+      reason: "the only css/styled template in the file",
+    };
+  }
 
   const withProp = templates.filter((t) => templateHasProperty(t.text, change.property));
   const withValue =
@@ -288,29 +308,52 @@ export async function chooseTemplateLine(
       : withProp;
 
   // Unambiguous deterministic hit — no LLM needed.
-  if (withValue.length === 1) return withValue[0]!.startLine;
-  if (withProp.length === 1) return withProp[0]!.startLine;
+  if (withValue.length === 1) {
+    return {
+      line: withValue[0]!.startLine,
+      confidence: "deterministic",
+      reason: `exactly one of ${String(templates.length)} templates declares ${change.property}: ${change.op === "modify" ? change.oldValue : "(this property)"}`,
+    };
+  }
+  if (withProp.length === 1) {
+    return {
+      line: withProp[0]!.startLine,
+      confidence: "deterministic",
+      reason: `exactly one of ${String(templates.length)} templates declares ${change.property}`,
+    };
+  }
 
   // Ambiguous (or zero deterministic matches): ask the LLM to auto-target.
   const relFile = path.relative(cfg.workspaceRoot, absFile) || path.basename(absFile);
   const llmLine = await llmChooseTemplate(cfg, relFile, templates, change, log);
-  if (llmLine !== null) return llmLine;
+  if (llmLine !== null) {
+    return {
+      line: llmLine,
+      confidence: "assisted",
+      reason: `LLM chose among ${String(templates.length)} candidate templates (no unique match) — eyeball the diff`,
+    };
+  }
 
   // Deterministic fallback: first property/value match, else first template.
-  return (withValue[0] ?? withProp[0] ?? templates[0])!.startLine;
+  const fallback = (withValue[0] ?? withProp[0] ?? templates[0])!;
+  return {
+    line: fallback.startLine,
+    confidence: "fallback",
+    reason: `first-match heuristic among ${String(templates.length)} templates (no unique match, no LLM) — verify the diff`,
+  };
 }
 
 /**
  * Full styled-components resolution from a change carrying a displayName class:
  * derive the file, read it, choose the template line. Returns {absFile, code,
- * line} ready for applyCssInJsChange. Throws SkipChangeError when no file can be
- * found for the identity.
+ * line, confidence, reason} ready for applyCssInJsChange. Throws SkipChangeError
+ * when no file can be found for the identity.
  */
 export async function resolveStyledTarget(
   cfg: Config,
   change: CssInJsChange,
   log: FastifyBaseLogger,
-): Promise<{ absFile: string; code: string; line: number }> {
+): Promise<{ absFile: string; code: string; line: number; confidence: Confidence; reason: string }> {
   const classList = change.element?.classList ?? [];
   const absFile = deriveStyledFile(cfg.workspaceRoot, classList);
   if (!absFile) {
@@ -324,6 +367,6 @@ export async function resolveStyledTarget(
   // Defensive: ensure the derived path is inside the jail before reading.
   const jailed = jailResolve(cfg.workspaceRoot, path.relative(cfg.workspaceRoot, absFile));
   const code = fs.readFileSync(jailed, "utf8");
-  const line = await chooseTemplateLine(cfg, jailed, code, change, log);
-  return { absFile: jailed, code, line };
+  const choice = await chooseTemplateLine(cfg, jailed, code, change, log);
+  return { absFile: jailed, code, line: choice.line, confidence: choice.confidence, reason: choice.reason };
 }

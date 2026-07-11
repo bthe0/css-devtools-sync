@@ -286,8 +286,23 @@ export const CapturePayloadSchema = z.object({
    */
   workspaceHint: z.string().optional(),
   changes: z.array(CaptureChangeSchema).max(500),
+  /**
+   * Two-phase apply. `preview` (default) runs the full pipeline but writes
+   * NOTHING to disk — every outcome carries a `diff` the client shows for
+   * confirmation. `commit` performs the writes and journals them for undo.
+   * Defaulted so older clients (which omit it) stay safe: they get a dry run,
+   * never a surprise write.
+   */
+  applyMode: z.enum(["preview", "commit"]).default("preview"),
 });
 export type CapturePayload = z.infer<typeof CapturePayloadSchema>;
+/**
+ * Construction-side shape: `applyMode` is optional here (it has a `.default`),
+ * unlike the parsed `CapturePayload` where it's required. Use this when BUILDING
+ * a payload before it crosses the schema boundary (tests, client callers).
+ */
+export type CapturePayloadInput = z.input<typeof CapturePayloadSchema>;
+export type ApplyMode2Phase = CapturePayload["applyMode"];
 
 // ---------------------------------------------------------------------------
 // Apply results (server -> extension)
@@ -312,7 +327,29 @@ export const ApplyModeSchema = z.enum([
 ]);
 export type ApplyMode = z.infer<typeof ApplyModeSchema>;
 
-/** One successfully applied change. */
+/**
+ * How confident the server is that it targeted the RIGHT source location.
+ * - `deterministic`: exact AST / sourcemap / classList match — no guessing.
+ * - `assisted`: an LLM picked the target among candidates (dev-only tiebreak).
+ * - `fallback`: no exact match and no LLM available — first-match heuristic.
+ * The client should render deterministic green, assisted/fallback amber
+ * (eyeball the diff before committing).
+ */
+export const ConfidenceSchema = z.enum(["deterministic", "assisted", "fallback"]);
+export type Confidence = z.infer<typeof ConfidenceSchema>;
+
+/** Per-file diff a preview run produces (and a commit run may echo). */
+export const FileDiffSchema = z.object({
+  /** Full file content before the edit. */
+  before: z.string(),
+  /** Full file content the edit would (preview) or did (commit) produce. */
+  after: z.string(),
+  /** Unified diff (createTwoFilesPatch) of before -> after. */
+  unified: z.string(),
+});
+export type FileDiff = z.infer<typeof FileDiffSchema>;
+
+/** One applied (commit) or would-be-applied (preview) change. */
 export const ApplyOutcomeSchema = z.object({
   change: CaptureChangeSchema,
   /** Workspace-relative path of the edited file. */
@@ -320,8 +357,18 @@ export const ApplyOutcomeSchema = z.object({
   /** 1-based line in the edited file, when known. */
   line: z.number().int().positive().optional(),
   mode: ApplyModeSchema,
+  /** How confident the target location is (see ConfidenceSchema). */
+  confidence: ConfidenceSchema,
+  /** Human-readable reason for a non-deterministic confidence, if any. */
+  confidenceReason: z.string().optional(),
   /** Human-readable note (e.g. "matched 2nd of 3 duplicate selectors"). */
   note: z.string().optional(),
+  /**
+   * The before/after/diff for this file. Always present in a `preview` run
+   * (nothing was written; this IS the proposed change). Present in a `commit`
+   * run too so the client can show what landed.
+   */
+  diff: FileDiffSchema.optional(),
 });
 export type ApplyOutcome = z.infer<typeof ApplyOutcomeSchema>;
 
@@ -333,6 +380,11 @@ export type SkippedChange = z.infer<typeof SkippedChangeSchema>;
 
 /** Response body for a CapturePayload. */
 export const ApplyResultSchema = z.object({
+  /**
+   * In a `commit` run: changes written to disk (and journaled).
+   * In a `preview` run: changes that WOULD be written — each carries a `diff`
+   * and NOTHING was persisted. Read `committed` to tell the two apart.
+   */
   applied: z.array(ApplyOutcomeSchema),
   skipped: z.array(SkippedChangeSchema),
   /**
@@ -340,8 +392,71 @@ export const ApplyResultSchema = z.object({
    * the client should prompt the user or invoke LLM-assisted placement.
    */
   needsPlacement: z.array(CaptureChangeSchema),
+  /** True when writes actually happened (commit); false for a preview dry-run. */
+  committed: z.boolean(),
 });
 export type ApplyResult = z.infer<typeof ApplyResultSchema>;
+
+// ---------------------------------------------------------------------------
+// Write journal + undo (server -> extension)
+// Every committed write is appended to a per-workspace journal so it can be
+// reverted. The journal lives server-side outside the workspace jail; these
+// shapes are the wire contract for surfacing and undoing entries.
+// ---------------------------------------------------------------------------
+
+/** One committed file write, enough to revert it. */
+export const JournalEntrySchema = z.object({
+  /** Opaque unique id (e.g. crypto.randomUUID()). */
+  id: z.string().min(1),
+  /** Unix epoch millis when the write was committed. */
+  ts: z.number().int().nonnegative(),
+  /** Workspace-relative path that was written. */
+  file: z.string().min(1),
+  /** How the change was resolved (mirrors ApplyOutcome.mode). */
+  mode: ApplyModeSchema,
+  /** Targeting confidence at write time (mirrors ApplyOutcome.confidence). */
+  confidence: ConfidenceSchema,
+  /** File content immediately BEFORE this write (the revert target). */
+  before: z.string(),
+  /** File content this write produced (drift guard for undo). */
+  after: z.string(),
+});
+export type JournalEntry = z.infer<typeof JournalEntrySchema>;
+
+/** GET /journal response: most-recent-first, capped. */
+export const JournalListSchema = z.object({
+  entries: z.array(JournalEntrySchema),
+});
+export type JournalList = z.infer<typeof JournalListSchema>;
+
+/**
+ * POST /undo body. Omit `id` to revert the single most-recent entry.
+ * Provide `id` to revert one specific entry.
+ */
+export const UndoRequestSchema = z.object({
+  id: z.string().min(1).optional(),
+});
+export type UndoRequest = z.infer<typeof UndoRequestSchema>;
+
+/** One entry the undo could not revert, with why. */
+export const UndoSkipSchema = z.object({
+  id: z.string().min(1),
+  file: z.string().min(1),
+  reason: z.string().min(1),
+});
+export type UndoSkip = z.infer<typeof UndoSkipSchema>;
+
+/** POST /undo response. */
+export const UndoResultSchema = z.object({
+  /** Entries successfully reverted (file restored to `before`). */
+  reverted: z.array(JournalEntrySchema),
+  /**
+   * Entries refused because the file no longer matches what the write produced
+   * (a hand-edit happened since) or the file is gone — never clobbered.
+   */
+  skipped: z.array(UndoSkipSchema),
+});
+export type UndoResult = z.infer<typeof UndoResultSchema>;
 
 // ---------------------------------------------------------------------------
 // Template describe (extension -> server -> extension)

@@ -515,15 +515,21 @@ export function describeJsxTemplate(
 export interface JsxApplyResult {
   /** Absolute jailed path of the edited file. */
   file: string;
+  /** Current on-disk source (before the edit). */
+  before: string;
+  /** Computed new source (equals `before` when the change is a no-op). */
+  after: string;
   line?: number | undefined;
   note?: string | undefined;
 }
 
 /**
- * Apply a set-attr / remove-attr / set-text change directly to JSX source.
- * Located via element.dataSourceFile (jailed) + element.dataSourceLine.
+ * Compute a set-attr / remove-attr / set-text change against JSX source WITHOUT
+ * writing. Located via element.dataSourceFile (jailed) + element.dataSourceLine.
  * Parses with @babel/parser via recast so untouched formatting is preserved
- * byte-for-byte; only the located node is replaced/mutated.
+ * byte-for-byte; only the located node is replaced/mutated. Returns the located
+ * file's current (`before`) and computed (`after`) source so the caller decides
+ * whether to preview the diff or commit the write — nothing is persisted here.
  */
 export function applyJsxChange(workspaceRoot: string, change: JsxChange): JsxApplyResult {
   const element = change.element;
@@ -550,11 +556,9 @@ export function applyJsxChange(workspaceRoot: string, change: JsxChange): JsxApp
 
   // set-text-segment edits via a surgical source-range splice (NOT a recast
   // reprint) to preserve every other byte and the exact replacement value.
-  // It has its own write path and returns here.
   if (change.op === "set-text-segment") {
     const newSource = applySetTextSegment(code, found, change, element);
-    if (newSource !== code) fs.writeFileSync(abs, newSource, "utf8");
-    return { file: abs, line: element.dataSourceLine };
+    return { file: abs, before: code, after: newSource, line: element.dataSourceLine };
   }
 
   switch (change.op) {
@@ -570,28 +574,30 @@ export function applyJsxChange(workspaceRoot: string, change: JsxChange): JsxApp
   }
 
   const printed = recast.print(ast).code;
-  if (printed !== code) {
-    // CORE INVARIANT #1: never persist source that does not re-parse. This is
-    // the universal safety net behind the targeted fixes above (unsafe
-    // attribute values/text, invalid attribute names) — if anything still
-    // slips through, refuse the write instead of corrupting the file.
-    //
-    // CORE INVARIANT #2 (value fidelity) is enforced earlier and more
-    // precisely, at the point each replacement node is built —
-    // buildAttrValueNode/buildTextChildNode each assert their own node
-    // round-trips to the exact requested value (see their doc comments) —
-    // rather than here, because relocating the edited node by line number in
-    // this fully-reprinted document is not reliable: recast can reflow
-    // unrelated surrounding source on any edit, shifting line numbers out
-    // from under a location-based re-check.
-    try {
-      recastBabelParser.parse(printed);
-    } catch (err) {
-      throw new SkipChangeError(
-        `refusing to write: edited JSX failed to re-parse (${err instanceof Error ? err.message : "unknown error"})`,
-      );
-    }
-    fs.writeFileSync(abs, printed, "utf8");
+  if (printed === code) {
+    return { file: abs, before: code, after: code, line: element.dataSourceLine };
   }
-  return { file: abs, line: element.dataSourceLine };
+  // CORE INVARIANT #1: never persist source that does not re-parse. This is
+  // the universal safety net behind the targeted fixes above (unsafe
+  // attribute values/text, invalid attribute names) — if anything still
+  // slips through, refuse the write instead of corrupting the file. Enforced
+  // here (before returning `after`) so a preview never shows, nor a commit
+  // ever writes, source that would not parse.
+  //
+  // CORE INVARIANT #2 (value fidelity) is enforced earlier and more
+  // precisely, at the point each replacement node is built —
+  // buildAttrValueNode/buildTextChildNode each assert their own node
+  // round-trips to the exact requested value (see their doc comments) —
+  // rather than here, because relocating the edited node by line number in
+  // this fully-reprinted document is not reliable: recast can reflow
+  // unrelated surrounding source on any edit, shifting line numbers out
+  // from under a location-based re-check.
+  try {
+    recastBabelParser.parse(printed);
+  } catch (err) {
+    throw new SkipChangeError(
+      `refusing to write: edited JSX failed to re-parse (${err instanceof Error ? err.message : "unknown error"})`,
+    );
+  }
+  return { file: abs, before: code, after: printed, line: element.dataSourceLine };
 }

@@ -6,13 +6,13 @@
   </head>
   <body>
     <header class="toolbar">
-      <span id="connection" class="badge badge-off" title="chrome.debugger attach state">detached</span>
+      <span id="connection" class="badge badge-off" title="connection to the extension service worker">connecting…</span>
       <span id="element-badge" class="badge badge-el hidden"></span>
-      <span id="autosave-badge" class="badge badge-off hidden" title="autosave state">autosave off</span>
+      <span id="autosave-badge" class="badge badge-off hidden" title="autosave state (paused while this panel is open)">autosave off</span>
       <span class="spacer"></span>
       <button id="clear-btn" type="button" disabled>Clear</button>
-      <button id="verify-btn" type="button" disabled>Verify</button>
-      <button id="sync-btn" type="button" class="primary" disabled>Sync to source</button>
+      <button id="undo-btn" type="button">Undo last sync</button>
+      <button id="preview-btn" type="button" class="primary" disabled>Preview changes</button>
       <div class="settings-wrap">
         <button id="settings-btn" type="button" class="icon-btn" aria-haspopup="true" aria-expanded="false" title="Settings">⚙</button>
         <div id="settings-popover" class="popover hidden" role="dialog" aria-label="Sync settings">
@@ -20,7 +20,7 @@
             <input id="autosave-toggle" type="checkbox" />
             <span>
               <span class="pop-title">Autosave</span>
-              <span class="pop-sub">Write source on every settled DevTools edit</span>
+              <span class="pop-sub">Write source on every settled DevTools edit (paused while this panel is open)</span>
             </span>
           </label>
           <div class="pop-row pop-shortcut">
@@ -32,7 +32,10 @@
       </div>
     </header>
 
-    <div id="banner" class="banner hidden" role="alert"></div>
+    <div id="banner" class="banner hidden" role="alert">
+      <span id="banner-text"></span>
+      <button id="banner-retry" type="button" class="banner-retry hidden">Retry</button>
+    </div>
 
     <main id="changes-region">
       <div id="empty-state" class="empty-state">
@@ -40,20 +43,42 @@
         <p class="empty-title">No changes captured yet</p>
         <p class="empty-hint">
           Edit CSS in the <strong>Styles</strong> panel, or attributes/text in the
-          <strong>Elements</strong> panel — every tweak shows up here, ready to sync
-          back to your source files.
+          <strong>Elements</strong> panel — every tweak shows up here, ready to preview
+          and sync back to your source files.
         </p>
         <p class="empty-note">
-          Note: Chrome shows a yellow “started debugging this browser” banner while
-          capture is active. That's expected — clicking Cancel on it stops capture.
+          While this panel is open, autosave pauses so you can review a diff before
+          anything is written — edits still keep capturing in the background.
         </p>
       </div>
       <ul id="change-list" class="change-list hidden"></ul>
     </main>
 
-    <section id="result-area" class="result-area hidden">
-      <h2 class="result-heading">Last sync</h2>
-      <div id="result-body"></div>
+    <section id="preview-area" class="preview-area hidden">
+      <h2 class="result-heading">Preview</h2>
+      <div id="preview-body"></div>
+      <div id="preview-actions" class="preview-actions hidden">
+        <button id="discard-btn" type="button">Discard</button>
+        <button id="apply-btn" type="button" class="primary">Apply</button>
+      </div>
+    </section>
+
+    <section id="journal-area" class="journal-area">
+      <div class="journal-heading-row">
+        <h2 class="result-heading">Sync history</h2>
+        <button id="journal-refresh-btn" type="button" class="icon-btn" title="Refresh history">⟳</button>
+      </div>
+      <div id="journal-body">
+        <div id="journal-loading" class="journal-loading hidden">
+          <span class="spinner"></span>Loading history…
+        </div>
+        <div id="journal-empty" class="empty-state journal-empty hidden">
+          <p class="empty-title">No sync history yet</p>
+          <p class="empty-hint">Applied changes show up here — each entry (and the batch as a
+            whole) can be undone individually.</p>
+        </div>
+        <ul id="journal-list" class="journal-list hidden"></ul>
+      </div>
     </section>
 
     <script src="panel.js"></script>

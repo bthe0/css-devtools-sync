@@ -29,6 +29,13 @@ const EnvSchema = z.object({
    * the app so the generated class takes effect. Defaults to src/index.css.
    */
   CSS_SYNC_OVERRIDES_FILE: z.preprocess(emptyToUndef, z.string().min(1).default("src/index.css")),
+  /**
+   * Base directory the append-only write journal lives under (one JSONL file
+   * per workspace). Deliberately OUTSIDE the workspace jail. Unset → the
+   * journal module's default (`~/.css-sync/journal`). Primarily a test/CI
+   * escape hatch so runs never pollute the real home directory.
+   */
+  CSS_SYNC_JOURNAL_DIR: z.preprocess(emptyToUndef, z.string().min(1).optional()),
 });
 
 export interface Config {
@@ -41,6 +48,11 @@ export interface Config {
   readonly syncToken: string | undefined;
   /** Workspace-relative overrides stylesheet for promoted inline-style edits. */
   readonly overridesFile: string;
+  /**
+   * Base dir for the write journal (one JSONL per workspace), OUTSIDE the jail.
+   * Undefined → journal module default (`~/.css-sync/journal`).
+   */
+  readonly journalDir?: string;
 }
 
 /** Read + validate configuration from the environment. Throws (fail fast) on any problem. */
@@ -74,5 +86,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     extensionId: parsed.data.EXTENSION_ID,
     syncToken: parsed.data.SYNC_TOKEN,
     overridesFile: parsed.data.CSS_SYNC_OVERRIDES_FILE,
+    journalDir: parsed.data.CSS_SYNC_JOURNAL_DIR,
   };
 }
