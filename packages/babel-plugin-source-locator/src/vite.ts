@@ -1,6 +1,19 @@
 import { transformAsync } from "@babel/core";
 import type { Plugin } from "vite";
+// @ts-expect-error -- no bundled types for the syntax plugin
+import syntaxTypescriptImport from "@babel/plugin-syntax-typescript";
 import sourceLocatorBabelPlugin, { type SourceLocatorOptions } from "./index.js";
+
+// Pass the resolved plugin by reference, not the bare string
+// "@babel/plugin-syntax-typescript": Babel resolves string plugin names relative
+// to the file being transformed (the consumer's app dir), where pnpm's strict
+// node_modules does not expose this package. Importing it here resolves it from
+// THIS package's own dependency graph. CJS interop: `exports.default = declare(...)`
+// arrives as `{ default: fn }` under some bundlers, so unwrap defensively.
+const syntaxTypescript: unknown =
+  typeof syntaxTypescriptImport === "function"
+    ? syntaxTypescriptImport
+    : (syntaxTypescriptImport as { default?: unknown }).default;
 
 const JSX_FILE_RE = /\.[jt]sx$/;
 
@@ -32,7 +45,7 @@ export function sourceLocator(options: SourceLocatorOptions = {}): Plugin {
         // Parse only — no preset transforms. JSX is preserved for plugin-react.
         parserOpts: { plugins: isTsx ? ["typescript", "jsx"] : ["jsx"] },
         plugins: [
-          ...(isTsx ? [["@babel/plugin-syntax-typescript", { isTSX: true }]] : []),
+          ...(isTsx ? [[syntaxTypescript, { isTSX: true }]] : []),
           [sourceLocatorBabelPlugin, { root }],
         ],
       });
