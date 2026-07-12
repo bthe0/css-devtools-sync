@@ -10,7 +10,7 @@ import type {
   ModifyChange,
 } from "@dev-sync/contract";
 import { SkipChangeError } from "./errors.js";
-import { jailResolve } from "./workspace.js";
+import { jailResolve, writeWorkspaceFile } from "./workspace.js";
 import { assertClassTokensSafe, assertExactMatch, buildAttrValueNode } from "./fidelity.js";
 
 /** CSS-shaped ops only (excludes set-attr/remove-attr/set-text, which have no styleSheet/selector). */
@@ -445,6 +445,9 @@ export function applyClassListChange(
   change: ClasslistChange,
 ): ClasslistApplyResult {
   const edit = computeClassListChange(workspaceRoot, change);
-  if (edit.code !== edit.original) fs.writeFileSync(edit.file, edit.code, "utf8");
+  // Route through the jailed writer so the write re-runs jailResolve (fresh
+  // realpath + containment) immediately before touching disk, exactly like the
+  // live two-phase spine — never a raw fs.writeFileSync that skips the re-check.
+  if (edit.code !== edit.original) writeWorkspaceFile(workspaceRoot, edit.file, edit.code);
   return { file: edit.file, line: edit.line, note: edit.note };
 }
