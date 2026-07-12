@@ -4,6 +4,9 @@ import type { FastifyBaseLogger } from "fastify";
 import {
   CapturePayloadSchema,
   DescribeTemplateRequestSchema,
+  JournalListSchema,
+  UndoRequestSchema,
+  UndoResultSchema,
   VerifyRequestSchema,
 } from "@css-sync/contract";
 import type { Config } from "./config.js";
@@ -11,6 +14,7 @@ import { SkipChangeError } from "./errors.js";
 import { WorkspaceError } from "./workspace.js";
 import { applyPayload, describeTemplate } from "./apply.js";
 import { verifyChecks } from "./verify.js";
+import { readJournal, undo } from "./journal.js";
 
 /** Connect-style middleware: (req, res, next). Matches Vite's `server.middlewares` and webpack devServer. */
 export type ConnectMiddleware = (
@@ -22,8 +26,26 @@ export type ConnectMiddleware = (
 /** Cap the request body before buffering — the engine never needs a large payload. */
 const MAX_BODY_BYTES = 5 * 1024 * 1024;
 
-/** The three engine routes this middleware owns, relative to its mount prefix. */
-const ROUTES = new Set(["/apply", "/describe", "/verify"]);
+/** Routes this middleware owns (relative to its mount prefix) and their method. */
+const ROUTES: Record<string, "GET" | "POST"> = {
+  "/apply": "POST",
+  "/describe": "POST",
+  "/verify": "POST",
+  "/undo": "POST",
+  "/journal": "GET",
+};
+
+const JOURNAL_DEFAULT_LIMIT = 50;
+const JOURNAL_MIN_LIMIT = 1;
+const JOURNAL_MAX_LIMIT = 200;
+
+/** Clamp an arbitrary `?limit=` into [1, 200], defaulting when absent/invalid. */
+function clampLimit(raw: string | null): number {
+  if (raw === null) return JOURNAL_DEFAULT_LIMIT;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n)) return JOURNAL_DEFAULT_LIMIT;
+  return Math.min(JOURNAL_MAX_LIMIT, Math.max(JOURNAL_MIN_LIMIT, n));
+}
 
 class PayloadTooLargeError extends Error {}
 
@@ -99,12 +121,31 @@ async function handle(
   cfg: Config,
   log: FastifyBaseLogger,
 ): Promise<void> {
+  // GET /journal has no body — read the limit from the query string.
+  if (route === "/journal") {
+    const url = new URL(req.url ?? "/", "http://embedded");
+    const limit = clampLimit(url.searchParams.get("limit"));
+    const entries = await readJournal(cfg, limit, log);
+    sendJson(res, 200, JournalListSchema.parse({ entries }));
+    return;
+  }
+
   const raw = await readBody(req);
   let body: unknown;
   try {
     body = raw.length ? JSON.parse(raw) : undefined;
   } catch {
     sendJson(res, 400, { error: "invalid JSON body" });
+    return;
+  }
+
+  if (route === "/undo") {
+    const parsed = UndoRequestSchema.safeParse(body ?? {});
+    if (!parsed.success) {
+      sendJson(res, 400, { error: "invalid UndoRequest", issues: issueSummary(parsed.error.issues) });
+      return;
+    }
+    sendJson(res, 200, UndoResultSchema.parse(await undo(cfg, parsed.data, log)));
     return;
   }
 
@@ -160,11 +201,12 @@ export function createApplyMiddleware(cfg: Config): ConnectMiddleware {
   const log = consoleLogger();
   return function cssSyncApplyMiddleware(req, res, next) {
     const pathname = (req.url ?? "").split("?")[0] ?? "";
-    if (!ROUTES.has(pathname)) {
+    const expectedMethod = ROUTES[pathname];
+    if (!expectedMethod) {
       next();
       return;
     }
-    if ((req.method ?? "").toUpperCase() !== "POST") {
+    if ((req.method ?? "").toUpperCase() !== expectedMethod) {
       sendJson(res, 405, { error: "method not allowed" });
       return;
     }

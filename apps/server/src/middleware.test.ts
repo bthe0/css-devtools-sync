@@ -1,5 +1,7 @@
 import { Readable } from "node:stream";
 import os from "node:os";
+import fs from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { configFromRoot } from "./config.js";
 import { createApplyMiddleware } from "./middleware.js";
@@ -147,5 +149,26 @@ describe("createApplyMiddleware", () => {
       headers: { "x-sync-token": "secret" },
     });
     expect(res.statusCode).toBe(200);
+  });
+
+  it("serves an empty write journal on GET /journal", async () => {
+    const journalDir = fs.mkdtempSync(path.join(os.tmpdir(), "css-sync-journal-"));
+    const jcfg = configFromRoot(os.tmpdir(), { journalDir });
+    const { res, json } = await invoke(jcfg, { method: "GET", url: "/journal?limit=10" });
+    expect(res.statusCode).toBe(200);
+    expect(json).toEqual({ entries: [] });
+  });
+
+  it("rejects POST /journal (wrong method) with 405", async () => {
+    const { res } = await invoke(cfg, { method: "POST", url: "/journal", body: {} });
+    expect(res.statusCode).toBe(405);
+  });
+
+  it("undoes against an empty journal without error", async () => {
+    const journalDir = fs.mkdtempSync(path.join(os.tmpdir(), "css-sync-journal-"));
+    const jcfg = configFromRoot(os.tmpdir(), { journalDir });
+    const { res, json } = await invoke(jcfg, { url: "/undo", body: {} });
+    expect(res.statusCode).toBe(200);
+    expect(json).toMatchObject({ reverted: [], skipped: [] });
   });
 });

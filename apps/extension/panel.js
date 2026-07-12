@@ -12,7 +12,8 @@
 //     this panel is open, so the user gets a chance to preview before
 //     anything is written, and to resume it on close,
 //   - drives the two-phase preview/commit flow and the undo/journal history
-//     purely over plain fetch to the local sync server (127.0.0.1:7777).
+//     purely over plain fetch to the apply engine embedded in the page's own
+//     dev server (same-origin, under /__css-sync).
 //
 // The old "Verify" feature (re-reading computed styles over the CDP session)
 // is intentionally dropped: it required this panel's own attach, which this
@@ -21,7 +22,11 @@
 
 "use strict";
 
-const SERVER_BASE = "http://127.0.0.1:7777";
+// The apply engine is mounted on the inspected page's OWN dev server under this
+// prefix (Vite `server.middlewares.use("/__css-sync", …)`), so requests are
+// same-origin — no separate port, no CORS. Resolve the origin per-call so it
+// stays correct across in-page navigations.
+const MOUNT_PREFIX = "/__css-sync";
 const tabId = chrome.devtools.inspectedWindow.tabId;
 
 // ---------------------------------------------------------------------------
@@ -406,7 +411,7 @@ function showBanner(text, kind /* "info" | "warn" | "error" */, retry) {
 
 function describeFetchError(err, action) {
   if (err instanceof TypeError) {
-    return `${action} failed: sync server unreachable at ${SERVER_BASE}. Start it with: pnpm --filter @css-sync/server dev`;
+    return `${action} failed: sync engine unreachable on the page's dev server. Add the @css-sync/vite plugin to your dev config.`;
   }
   return `${action} failed: ${err instanceof Error ? err.message : String(err)}`;
 }
@@ -424,6 +429,19 @@ function getInspectedUrl() {
   return new Promise((resolve) => {
     chrome.devtools.inspectedWindow.eval("location.href", (result) => {
       resolve(typeof result === "string" && result ? result : "about:blank");
+    });
+  });
+}
+
+/** Base URL of the embedded apply engine on the inspected page's origin. */
+function syncBase() {
+  return new Promise((resolve, reject) => {
+    chrome.devtools.inspectedWindow.eval("location.origin", (result, exc) => {
+      if (exc || typeof result !== "string" || !result) {
+        reject(new Error("could not resolve inspected page origin"));
+        return;
+      }
+      resolve(`${result}${MOUNT_PREFIX}`);
     });
   });
 }
@@ -448,7 +466,7 @@ function doDiscard() {
 }
 
 async function postApply(payload) {
-  return fetchJSON(`${SERVER_BASE}/apply`, {
+  return fetchJSON(`${await syncBase()}/apply`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -706,7 +724,7 @@ async function undoLast() {
   const orig = undoBtn.textContent;
   undoBtn.innerHTML = '<span class="spinner"></span>Undoing…';
   try {
-    const result = await fetchJSON(`${SERVER_BASE}/undo`, {
+    const result = await fetchJSON(`${await syncBase()}/undo`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),
@@ -727,7 +745,7 @@ async function undoEntry(id, btn) {
   const orig = btn.textContent;
   btn.innerHTML = '<span class="spinner"></span>';
   try {
-    const result = await fetchJSON(`${SERVER_BASE}/undo`, {
+    const result = await fetchJSON(`${await syncBase()}/undo`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id }),
@@ -789,7 +807,7 @@ async function loadJournal() {
   journalError = null;
   renderJournal();
   try {
-    const data = await fetchJSON(`${SERVER_BASE}/journal?limit=20`);
+    const data = await fetchJSON(`${await syncBase()}/journal?limit=20`);
     journalEntries = Array.isArray(data?.entries) ? data.entries : [];
     journalState = "loaded";
     renderJournal();

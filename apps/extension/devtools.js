@@ -27,8 +27,30 @@ import {
   resolveTextSegmentEdit,
 } from "./background/diff.js";
 
-const SERVER_BASE = "http://127.0.0.1:7777";
+// The apply engine is mounted on the inspected page's OWN dev server under this
+// prefix (Vite `server.middlewares.use("/__css-sync", …)`), so requests are
+// same-origin — no separate port, no CORS. Resolve the origin per-call so it
+// stays correct across in-page navigations.
+const MOUNT_PREFIX = "/__css-sync";
 const tabId = chrome.devtools.inspectedWindow.tabId;
+
+/** Resolve the inspected page's origin via the DevTools eval bridge. */
+function inspectedOrigin() {
+  return new Promise((resolve, reject) => {
+    chrome.devtools.inspectedWindow.eval("location.origin", (result, exc) => {
+      if (exc || typeof result !== "string" || !result) {
+        reject(new Error("could not resolve inspected page origin"));
+        return;
+      }
+      resolve(result);
+    });
+  });
+}
+
+/** Base URL of the embedded apply engine on the inspected page's origin. */
+async function syncBase() {
+  return `${await inspectedOrigin()}${MOUNT_PREFIX}`;
+}
 
 // ---------------------------------------------------------------------------
 // State
@@ -692,7 +714,7 @@ async function resolveAndEmitTextSegment(context, key, kids, changedIndex, newVa
   try {
     let res;
     try {
-      res = await fetch(`${SERVER_BASE}/describe`, {
+      res = await fetch(`${await syncBase()}/describe`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ element: context }),
@@ -899,16 +921,24 @@ async function syncToSource(opts = {}) {
       applyMode: "commit",
     };
 
+    let base;
+    try {
+      base = await syncBase();
+    } catch {
+      console.warn("[css-sync] could not resolve inspected page origin");
+      toastRaw("CSS Sync: could not resolve page origin", "warn");
+      return;
+    }
     let res;
     try {
-      res = await fetch(`${SERVER_BASE}/apply`, {
+      res = await fetch(`${base}/apply`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
     } catch {
-      console.warn(`[css-sync] sync server unreachable at ${SERVER_BASE}`);
-      toastRaw(`CSS Sync: server unreachable at ${SERVER_BASE}`, "warn");
+      console.warn(`[css-sync] sync engine unreachable at ${base}`);
+      toastRaw(`CSS Sync: engine unreachable at ${base}`, "warn");
       return;
     }
     if (!res.ok) {
