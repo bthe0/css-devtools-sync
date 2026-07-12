@@ -52,6 +52,23 @@ async function syncBase() {
   return `${await inspectedOrigin()}${MOUNT_PREFIX}`;
 }
 
+// Only localhost dev servers carry the apply engine. The CDP-attach permission
+// is browser-wide (not gated by host_permissions), so without this check every
+// tab that opens DevTools would get attached — plus Chrome's yellow "started
+// inspecting this browser" banner — even on google.com. Mirror the manifest
+// content_scripts matches: http(s) on localhost / 127.0.0.1.
+function isDevHost(origin) {
+  try {
+    const u = new URL(origin);
+    return (
+      (u.protocol === "http:" || u.protocol === "https:") &&
+      (u.hostname === "localhost" || u.hostname === "127.0.0.1")
+    );
+  } catch {
+    return false;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
@@ -405,7 +422,18 @@ function connectPort() {
   port.postMessage({ type: "attach", tabId });
 }
 
-connectPort();
+// Gate startup on the inspected page being a localhost dev server. On any other
+// page (google.com, prod sites) we never connect, never attach, and never show
+// the "started inspecting this browser" banner — DevTools opens clean there.
+(async () => {
+  let origin;
+  try {
+    origin = await inspectedOrigin();
+  } catch {
+    return; // origin unresolvable — safest not to attach
+  }
+  if (isDevHost(origin)) connectPort();
+})();
 
 // ---------------------------------------------------------------------------
 // Element selection -> ElementContext (tracks the Elements-panel selection)
