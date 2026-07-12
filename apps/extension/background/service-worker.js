@@ -493,19 +493,47 @@ chrome.runtime.onConnect.addListener((port) => {
         // (same path as requestElementContextFromContentScript).
         if (tabId === null) break;
         const { text, kind } = summarizeAutosave(msg.applied ?? [], msg.skipped ?? 0);
-        chrome.tabs.sendMessage(tabId, { type: "dev-sync:toast", text, kind }, () => {
+        chrome.tabs.sendMessage(tabId, { type: "dev-sync:message", text, kind }, () => {
           void chrome.runtime.lastError; // no content script on this page — ignore
         });
         break;
       }
 
       case "toast": {
-        // Raw in-page toast (errors / partial-failure notices) from the
-        // headless devtools client — same content-script relay as show-toast.
+        // A feed line (errors / partial-failure notices) for the in-page HUD
+        // from the headless devtools client — same content-script relay path.
         if (tabId === null) break;
         chrome.tabs.sendMessage(
           tabId,
-          { type: "dev-sync:toast", text: String(msg.text ?? ""), kind: msg.kind },
+          { type: "dev-sync:message", text: String(msg.text ?? ""), kind: msg.kind },
+          () => {
+            void chrome.runtime.lastError;
+          }
+        );
+        break;
+      }
+
+      case "status": {
+        // Engine connection state for the HUD badge (green/yellow/red/idle).
+        if (tabId === null) break;
+        chrome.tabs.sendMessage(
+          tabId,
+          { type: "dev-sync:status", state: String(msg.state ?? "idle") },
+          () => {
+            void chrome.runtime.lastError;
+          }
+        );
+        break;
+      }
+
+      case "pending-count": {
+        // Singleton "N changes waiting for save" status for the tab (shown only
+        // when autosave is off and the panel is closed — see devtools.js
+        // notifyPending). count 0 dismisses it.
+        if (tabId === null) break;
+        chrome.tabs.sendMessage(
+          tabId,
+          { type: "dev-sync:pending", count: Number(msg.count) || 0 },
           () => {
             void chrome.runtime.lastError;
           }

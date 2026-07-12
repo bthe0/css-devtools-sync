@@ -5,6 +5,9 @@
   "description": "Chrome DevTools extension: CDP capture engine + Source Sync panel. Not published; loaded unpacked from apps/extension.",
   "type": "module",
   "scripts": {
-    "test": "node --test background/*.test.js"
+    "test": "node --test background/*.test.js *.test.js"
+  },
+  "devDependencies": {
+    "jsdom": "^25.0.1"
   }
 }

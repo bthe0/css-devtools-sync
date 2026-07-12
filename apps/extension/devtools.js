@@ -133,6 +133,9 @@ chrome.storage.onChanged.addListener((changed, area) => {
     clearTimeout(autosaveTimer);
     autosaveTimer = null;
   }
+  // Autosave ON dismisses the pending status (the timer will flush); OFF with
+  // edits already captured surfaces the waiting-count immediately.
+  notifyPending();
 });
 
 function scheduleAutosave() {
@@ -165,6 +168,111 @@ function toastSummary(applied, skipped) {
 function toastRaw(text, kind /* "info" | "warn" */) {
   try {
     port.postMessage({ type: "toast", text, kind });
+  } catch {
+    /* port gone */
+  }
+}
+
+// A broken/absent engine would fire the SAME warning on every autosave tick
+// (and every poll-driven retry) — flooding the page. Show a given error at
+// most once per cooldown window; a successful sync forgets it, so a fresh
+// failure notifies again.
+const ERROR_TOAST_COOLDOWN_MS = 15000;
+let lastErrorKey = null;
+let lastErrorAt = 0;
+
+/** Deduped, human error toast. `key` collapses repeats; `text` is user-facing. */
+function toastError(key, text) {
+  const now = Date.now();
+  if (key === lastErrorKey && now - lastErrorAt < ERROR_TOAST_COOLDOWN_MS) return;
+  lastErrorKey = key;
+  lastErrorAt = now;
+  toastRaw(text, "warn");
+}
+
+/** Forget the last error so the next failure of any kind re-notifies. */
+function clearErrorToast() {
+  lastErrorKey = null;
+  lastErrorAt = 0;
+}
+
+/** Map an /apply HTTP status to a human, actionable message (never a raw code). */
+function engineErrorMessage(status) {
+  if (status === 404)
+    return "dev-sync: engine isn't mounted on this page — add devSync() to your Vite config.";
+  if (status === 400 || status === 422)
+    return "dev-sync: couldn't apply this edit — it's not a change the engine can map to source.";
+  if (status === 401 || status === 403)
+    return "dev-sync: the engine refused this request — check its token/EXTENSION_ID.";
+  if (status === 413) return "dev-sync: that change is too large for the engine to apply.";
+  if (status >= 500) return "dev-sync: the engine hit an error — check the dev-server terminal.";
+  return `dev-sync: the engine returned ${status}.`;
+}
+
+// ---------------------------------------------------------------------------
+// HUD connection status — drives the in-page badge color.
+//   green: engine reachable, idle/healthy   yellow: reachable but last edit
+//   errored/skipped   red: engine unreachable / not mounted
+// Yellow is latched by a real edit failure and only cleared by a clean apply,
+// so a health ping never paints over a problem the user should see.
+// ---------------------------------------------------------------------------
+
+let hudStatus = "idle";
+function setStatus(state) {
+  if (state === hudStatus) return;
+  hudStatus = state;
+  try {
+    port.postMessage({ type: "status", state });
+  } catch {
+    /* port gone */
+  }
+}
+
+const HEALTH_POLL_MS = 5000;
+async function checkHealth() {
+  let base;
+  try {
+    base = await syncBase();
+  } catch {
+    setStatus("red");
+    return;
+  }
+  try {
+    // /journal is a side-effect-free GET on the same mount as /apply — a clean
+    // liveness probe (404 = engine not mounted on this origin).
+    const res = await fetch(`${base}/journal?limit=1`, { method: "GET" });
+    if (!res.ok) {
+      setStatus(res.status === 404 ? "red" : "yellow");
+      return;
+    }
+    // Reachable + healthy. Don't stomp a yellow the user still needs to see —
+    // only a successful apply clears that.
+    if (hudStatus === "red" || hudStatus === "idle") setStatus("green");
+  } catch {
+    setStatus("red");
+  }
+}
+setInterval(() => void checkHealth(), HEALTH_POLL_MS);
+void checkHealth();
+
+/**
+ * Persistent "N changes waiting for save" status, shown in the page ONLY when
+ * autosave is off and the Source Sync panel isn't open (the panel already
+ * shows the count itself — a toast would be redundant). Relayed as a singleton
+ * status the content script updates in place, so it never stacks per change.
+ * Posting count 0 dismisses it.
+ */
+function notifyPending() {
+  if (autosave || pausedForPanel) {
+    pushPendingCount(0);
+    return;
+  }
+  pushPendingCount(changes.size);
+}
+
+function pushPendingCount(count) {
+  try {
+    port.postMessage({ type: "pending-count", count });
   } catch {
     /* port gone */
   }
@@ -255,6 +363,7 @@ function connectPort() {
           autosaveTimer = null;
         }
         postPendingSnapshot(); // panel just subscribed — send it the current state
+        notifyPending(); // panel now owns the count display — hide the in-page one
         break;
 
       case "panel-closed":
@@ -262,6 +371,7 @@ function connectPort() {
         // pending (e.g. closed the panel without Discard/Apply).
         pausedForPanel = false;
         scheduleAutosave();
+        notifyPending(); // if autosave is off, re-surface any waiting count
         break;
 
       case "drop-keys":
@@ -379,6 +489,7 @@ function addChange(change) {
     if (change.oldValue === change.newValue) {
       changes.delete(key); // edited back to the original — nothing to sync
       postPendingSnapshot();
+      notifyPending();
       return;
     }
   }
@@ -386,6 +497,7 @@ function addChange(change) {
   changes.set(key, change);
   scheduleAutosave();
   postPendingSnapshot();
+  notifyPending();
 }
 
 // ---------------------------------------------------------------------------
@@ -926,7 +1038,8 @@ async function syncToSource(opts = {}) {
       base = await syncBase();
     } catch {
       console.warn("[dev-sync] could not resolve inspected page origin");
-      toastRaw("CSS Sync: could not resolve page origin", "warn");
+      toastError("origin", "dev-sync: couldn't tell what page this is — open a localhost dev server tab.");
+      setStatus("red");
       return;
     }
     let res;
@@ -938,13 +1051,18 @@ async function syncToSource(opts = {}) {
       });
     } catch {
       console.warn(`[dev-sync] sync engine unreachable at ${base}`);
-      toastRaw(`CSS Sync: engine unreachable at ${base}`, "warn");
+      toastError(
+        "unreachable",
+        "dev-sync: can't reach the dev server — is it running with devSync() added?"
+      );
+      setStatus("red");
       return;
     }
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       console.warn(`[dev-sync] server error ${res.status}: ${body.slice(0, 300)}`);
-      toastRaw(`CSS Sync: server error ${res.status}`, "warn");
+      toastError(`http-${res.status}`, engineErrorMessage(res.status));
+      setStatus(res.status === 404 ? "red" : "yellow");
       return;
     }
 
@@ -957,9 +1075,14 @@ async function syncToSource(opts = {}) {
       !Array.isArray(result.needsPlacement)
     ) {
       console.warn("[dev-sync] server returned a malformed ApplyResult");
-      toastRaw("CSS Sync: malformed server response", "warn");
+      toastError("malformed", "dev-sync: got an unexpected reply from the engine — check its version.");
+      setStatus("yellow");
       return;
     }
+
+    // Got a well-formed reply — the engine is healthy again; let the next
+    // failure of any kind notify afresh.
+    clearErrorToast();
 
     // Applied changes are now in source; drop them from the pending list.
     const appliedKeys = new Set(result.applied.map((o) => changeKey(o.change)));
@@ -996,18 +1119,28 @@ async function syncToSource(opts = {}) {
     }
 
     postPendingSnapshot();
+    notifyPending();
 
     if (toast && result.applied.length > 0) {
       toastSummary(result.applied, result.skipped.length);
     }
-    // Surface partial failures even on an auto run — the user can't see a panel.
-    if (result.skipped.length > 0 || result.needsPlacement.length > 0) {
-      toastRaw(
-        `CSS Sync: ${result.applied.length} applied, ${result.skipped.length} skipped, ` +
-          `${result.needsPlacement.length} need placement`,
-        "warn"
+    // A new rule that could land in several files needs the user to choose —
+    // point them at the panel. Deduped so an unresolved placement doesn't
+    // re-warn on every autosave tick.
+    if (result.needsPlacement.length > 0) {
+      toastError(
+        `placement-${result.needsPlacement.length}`,
+        `dev-sync: ${result.needsPlacement.length} new ` +
+          `${result.needsPlacement.length === 1 ? "rule needs" : "rules need"} ` +
+          `a target file — open the Source Sync panel to place ${result.needsPlacement.length === 1 ? "it" : "them"}.`
       );
     }
+
+    // Clean apply clears any latched yellow; a partial one keeps the badge
+    // amber so the unresolved skip/placement stays visible.
+    setStatus(
+      result.skipped.length > 0 || result.needsPlacement.length > 0 ? "yellow" : "green"
+    );
   } finally {
     syncing = false;
   }
