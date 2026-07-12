@@ -146,6 +146,37 @@ describe("applyClassListChange — utility token safety (value fidelity)", () =>
     expect(fs.readFileSync(absFile, "utf8")).toBe(before);
   });
 
+  it("JSX: appending a className to an element carrying a spread ({...props}) is skipped, file left byte-identical", () => {
+    // {...props} can supply its own className; JSX resolves duplicate attributes
+    // last-wins, so a blindly-appended className would either clobber the
+    // spread's classes or be clobbered by a later spread (silently ineffective).
+    // We can't tell statically which — refuse rather than corrupt the element.
+    const relFile = "src/App.tsx";
+    const { root, absFile } = makeWorkspace(
+      relFile,
+      `export function App(props) {\n  return (\n    <div {...props}>\n      Hi\n    </div>\n  );\n}\n`,
+    );
+    const before = fs.readFileSync(absFile, "utf8");
+    const change = addDeclChange(element(relFile, 3), "padding", "48px");
+
+    expect(() => applyClassListChange(root, change)).toThrow(SkipChangeError);
+    expect(() => applyClassListChange(root, change)).toThrow(/spread/);
+    expect(fs.readFileSync(absFile, "utf8")).toBe(before);
+  });
+
+  it("JSX: an element with a spread AND an explicit className still edits the explicit one (spread guard scoped to the append path)", () => {
+    const relFile = "src/App.tsx";
+    const { root, absFile } = makeWorkspace(
+      relFile,
+      `export function App(props) {\n  return (\n    <div {...props} className="card">\n      Hi\n    </div>\n  );\n}\n`,
+    );
+    const change = addDeclChange(element(relFile, 3), "padding", "48px");
+
+    applyClassListChange(root, change);
+    const out = fs.readFileSync(absFile, "utf8");
+    expect(out).toContain('className="card p-[48px]"');
+  });
+
   it("JSX: a single-line self-closing element (recast reflow risk) still applies correctly, not a false skip", () => {
     // Regression: recast can reflow/collapse the containing `return (...)`
     // onto one line when a self-closing element's attribute value is

@@ -27,6 +27,7 @@ import {
   resolveTextSegmentEdit,
 } from "./background/diff.js";
 import { partitionSkips } from "./background/summary.js";
+import { extractSourceMappingURL } from "./background/sourcemap-url.js";
 
 // The apply engine is mounted on the inspected page's OWN dev server under this
 // prefix (Vite `server.middlewares.use("/__dev-sync", …)`), so requests are
@@ -99,7 +100,6 @@ const describeInflight = new Set();
  * change; null before the first selection is read.
  */
 let selectedElement = null;
-let attached = false;
 let syncing = false;
 
 /**
@@ -118,7 +118,12 @@ let pausedForPanel = false;
 // ---------------------------------------------------------------------------
 
 const AUTOSAVE_KEY = "dev-sync:autosave";
-const AUTOSAVE_DEBOUNCE_MS = 700;
+// Idle-after-edit is the primary save trigger again (see addChange), safe now
+// that the swap-prevention runtime keeps the edited CSSStyleSheet alive across
+// the save-triggered HMR. onSelectionChanged also flushes on deselect as a
+// backstop. Kept at ~1.2s so a burst of keystrokes coalesces into one save/HMR
+// rather than recompiling Next on every character.
+const AUTOSAVE_DEBOUNCE_MS = 1200;
 let autosave = true; // default ON (overwritten by the stored pref on load)
 let autosaveTimer = null;
 
@@ -219,16 +224,20 @@ function engineErrorMessage(status) {
 // ---------------------------------------------------------------------------
 
 let hudStatus = "idle";
-function setStatus(state) {
-  if (state === hudStatus) return;
+let hudDetail = "";
+function setStatus(state, detail = "") {
+  if (state === hudStatus && detail === hudDetail) return;
   try {
     // Latch the new state ONLY after a successful post. The first checkHealth()
     // fires at module load, before connectPort() assigns `port` — posting then
     // throws. Latching before the post would strand hudStatus at the undelivered
     // value and the 5s poll (gated on idle/red) would never re-send it → badge
     // stuck idle. Leaving hudStatus unchanged lets the next poll retry.
-    port.postMessage({ type: "status", state });
+    // `detail` carries a specific reason (e.g. the first actionable skip) so the
+    // HUD shows WHY the last edit had issues instead of a generic amber.
+    port.postMessage({ type: "status", state, detail });
     hudStatus = state;
+    hudDetail = detail;
   } catch {
     /* port not ready / gone — retry on the next health poll */
   }
@@ -401,6 +410,9 @@ function connectPort() {
         hudStatus = "idle";
         void checkHealth();
         notifyPending();
+        // The page context is fresh (reload/HMR nav), so the main-world fetch
+        // patch was lost — reinstall the swap-prevention runtime.
+        injectNoSwapRuntime();
         break;
 
       case "change":
@@ -523,6 +535,18 @@ function formatEvalException(info) {
 let lastSelectionEvalError = null;
 
 function onSelectionChanged() {
+  // Flush pending edits for the element we're LEAVING before switching. Saving
+  // triggers Next's CSS HMR, which bumps the sheet's `?v=` → swaps the <link> →
+  // detaches the CSSStyleSheet DevTools is editing. A save fired mid-edit-session
+  // therefore breaks the NEXT edit to that same rule until the user reselects
+  // ("CSS changes stop working after a save"). Deferring the commit to the moment
+  // the user moves OFF the element means the swap lands BETWEEN edit sessions, not
+  // during one — so continued editing of one rule stays on the live sheet. (The
+  // idle backstop below is lengthened for the same reason: a rapid stop→resume on
+  // one property must not trip a mid-session save.)
+  if (autosave && !syncing && !pausedForPanel && changes.size > 0) {
+    void syncToSource({ auto: true, toast: true });
+  }
   chrome.devtools.inspectedWindow.eval(SELECTION_EVAL, (result, exceptionInfo) => {
     if (exceptionInfo && (exceptionInfo.isError || exceptionInfo.isException)) {
       const reason = formatEvalException(exceptionInfo);
@@ -599,6 +623,14 @@ function addChange(change) {
   }
 
   changes.set(key, change);
+  // Arm the idle autosave. This is safe ONLY because the swap-prevention runtime
+  // (injectNoSwapRuntime) keeps Next's CSS <link> — and thus the CSSStyleSheet
+  // DevTools is editing — ALIVE across the save-triggered HMR. Without it, a save
+  // fired mid-edit swaps the sheet out and DevTools reverts every subsequent edit
+  // to a dead sheet until reselect (the reason this arming was removed under the
+  // no-runtime "save on deselect only" compromise). Vite updates its <style> in
+  // place (same sheet object) so it was always safe there. onSelectionChanged
+  // still flushes on deselect as a backstop; the two triggers are complementary.
   scheduleAutosave();
   postPendingSnapshot();
   notifyPending();
@@ -658,8 +690,16 @@ const SERIALIZE_SHEETS = `(() => {
     // them would POST a stream of doomed changes → an endless "N skipped" toast
     // with no user action. Skip those.
     const mappable = Boolean(viteId || sheet.href || sourceMapURL || styled);
+    // STABLE key across HMR: Next serves CSS as <link href="…/layout.css?v=123">
+    // and bumps ?v= on every rebuild. Keying the snapshot by the versioned href
+    // makes each rebuild a brand-new key that re-BASELINES with no emit — so an
+    // edit made in the HMR window (e.g. delete a value then retype it) lands in
+    // that fresh baseline and is never diffed/applied ("doesn't update in DOM").
+    // Strip the query so the key survives ?v= bumps; keep the versioned sourceURL
+    // for map fetching (the map content is per-build). Vite is unaffected (viteId).
+    const hrefKey = sheet.href ? sheet.href.split("?")[0] : "";
     out.push({
-      key: viteId || sheet.href || ("inline:" + i),
+      key: viteId || hrefKey || ("inline:" + i),
       sourceURL: sheet.href || "",
       sourceMapURL: sourceMapURL,
       mappable: mappable,
@@ -683,8 +723,54 @@ const cssSnapshots = new Map();
  * diff whose newValue equals it is that revert, and is skipped once.
  */
 const cssRevertGuard = new Map();
+/**
+ * Guards against the HMR-SWAP-WINDOW phantom revert. After WE save a modify
+ * (old A → new B), Next reloads the CSS by bumping `?v=` and swapping the <link>
+ * (see the swap notes above). During that swap the OLD sheet (still showing A)
+ * can briefly remain live, so the poller reads A, diffs it against its snapshot
+ * (B) as a fresh user edit `B→A`, and would re-save A — reverting the edit back
+ * to the previously-saved value. The plain revertGuard misses this because it
+ * holds the FIRST oldValue, not the value we just overwrote. So on each apply we
+ * record `gkey -> { value: overwrittenValue, expiry }` and, for a short settle
+ * window, swallow any modify whose newValue equals that overwritten value. A
+ * genuine forward edit (newValue ≠ overwritten) still passes; a re-emit to B is
+ * a byte-identical no-op server-side (no write, no further HMR), so no loop.
+ */
+const cssPostSaveGuard = new Map();
+const POST_SAVE_SETTLE_MS = 2000;
 let cssPollTimer = null;
 let cssPolling = false;
+
+/**
+ * Recovered `sourceMappingURL` per served sheet URL (the versioned href, e.g.
+ * `…/layout.css?v=123`). An HMR rebuild bumps `?v=` → a fresh key, so a stale
+ * entry is naturally ignored; unseen keys are pruned each poll.
+ */
+const cssMapCache = new Map();
+
+/**
+ * Recover the `sourceMappingURL` for a `<link>` stylesheet by FETCHING its bytes.
+ * The CSSOM (`sheet.cssRules`) strips the trailing `/*# sourceMappingURL … *\/`
+ * comment, and an external `<link>` has no `ownerNode.textContent` to read it
+ * from — so a compiled sheet Next serves as `<link rel=stylesheet>` reaches the
+ * poller with an EMPTY map, and the server then can't trace it back to source
+ * ("source file not found"). host_permissions cover http://localhost/* so the
+ * devtools page may fetch the sheet cross-origin and read its body. Returns ""
+ * (uncached, so a later poll retries) on any network/HMR-window failure.
+ */
+async function recoverSheetMap(sourceURL) {
+  if (!sourceURL || !/^https?:\/\//.test(sourceURL)) return "";
+  if (cssMapCache.has(sourceURL)) return cssMapCache.get(sourceURL);
+  try {
+    const res = await fetch(sourceURL);
+    if (!res.ok) return ""; // transient (e.g. sheet swapping mid-HMR) — retry next poll
+    const map = extractSourceMappingURL(await res.text());
+    cssMapCache.set(sourceURL, map);
+    return map;
+  } catch {
+    return ""; // network hiccup / sheet gone — leave uncached so a later poll retries
+  }
+}
 
 function pollCss() {
   return new Promise((resolve) => {
@@ -693,7 +779,7 @@ function pollCss() {
       return;
     }
     cssPolling = true;
-    chrome.devtools.inspectedWindow.eval(SERIALIZE_SHEETS, (result, exceptionInfo) => {
+    chrome.devtools.inspectedWindow.eval(SERIALIZE_SHEETS, async (result, exceptionInfo) => {
       try {
         if (exceptionInfo && (exceptionInfo.isError || exceptionInfo.isException)) return;
         let sheets;
@@ -705,21 +791,28 @@ function pollCss() {
         if (!Array.isArray(sheets)) return;
 
         const seen = new Set();
+        const seenURLs = new Set();
         for (const sheet of sheets) {
           // Unsyncable runtime CSS-in-JS sheet (no source mapping) — never diff
           // it; doing so only manufactures guaranteed-skip churn (see eval note).
           if (!sheet.mappable) continue;
           seen.add(sheet.key);
+          if (sheet.sourceURL) seenURLs.add(sheet.sourceURL);
           const prev = cssSnapshots.get(sheet.key);
           cssSnapshots.set(sheet.key, sheet.rulesText);
           // First sighting = baseline only (no emit); unchanged = nothing to do.
           if (prev === undefined || prev === sheet.rulesText) continue;
 
+          // The CSSOM strips the map comment, so an external <link> sheet (how
+          // Next serves CSS) arrives with an empty sourceMapURL — recover it by
+          // fetching the sheet bytes, else the server can't map it to source.
+          let mapURL = sheet.sourceMapURL;
+          if (!mapURL && sheet.sourceURL) mapURL = await recoverSheetMap(sheet.sourceURL);
           const ref = {
             id: "eval:" + sheet.key,
             sourceURL: sheet.sourceURL,
             origin: "regular",
-            ...(sheet.sourceMapURL ? { sourceMapURL: sheet.sourceMapURL } : {}),
+            ...(mapURL ? { sourceMapURL: mapURL } : {}),
           };
           let sheetChanges;
           try {
@@ -772,6 +865,17 @@ function pollCss() {
             // sheet just bounced back to its pre-edit state — not a user edit.
             if (change.op === "modify" && typeof change.selector === "string") {
               const gkey = `${sheet.key}|${change.selector}|${change.property}`;
+              // Post-save settle window: if the sheet just bounced to the value
+              // we overwrote (the swap showing the old <link>), that's HMR churn,
+              // not a user edit — swallow it so it isn't re-saved as a revert.
+              const ps = cssPostSaveGuard.get(gkey);
+              if (ps) {
+                if (Date.now() < ps.expiry) {
+                  if (ps.value === change.newValue) continue;
+                } else {
+                  cssPostSaveGuard.delete(gkey);
+                }
+              }
               if (cssRevertGuard.get(gkey) === change.newValue) {
                 cssRevertGuard.delete(gkey);
                 continue;
@@ -801,7 +905,26 @@ function pollCss() {
         // Drop sheets that disappeared (e.g. an HMR <style> swap) so that if the
         // same key reappears it re-baselines instead of diffing against stale text.
         for (const key of [...cssSnapshots.keys()]) {
-          if (!seen.has(key)) cssSnapshots.delete(key);
+          if (!seen.has(key)) {
+            cssSnapshots.delete(key);
+            // Evict this sheet's revert guards too. Unlike snapshots, a guard
+            // entry is only cleared when its HMR bounce arrives (826) — if the
+            // sheet is gone that bounce never comes, so the entries would accrete
+            // unbounded. Guard keys are `${sheet.key}|selector|property`; match
+            // on the `key + "|"` prefix (sheet.key is a viteId/href/`inline:N`,
+            // none of which contain "|").
+            for (const gkey of [...cssRevertGuard.keys()]) {
+              if (gkey.startsWith(key + "|")) cssRevertGuard.delete(gkey);
+            }
+            for (const gkey of [...cssPostSaveGuard.keys()]) {
+              if (gkey.startsWith(key + "|")) cssPostSaveGuard.delete(gkey);
+            }
+          }
+        }
+        // Evict recovered maps for sheet URLs no longer present (HMR bumps the
+        // versioned href, so old entries would otherwise accrete unbounded).
+        for (const url of [...cssMapCache.keys()]) {
+          if (!seenURLs.has(url)) cssMapCache.delete(url);
         }
       } finally {
         cssPolling = false;
@@ -1113,7 +1236,132 @@ function startCssPolling() {
   void pollElements();
 }
 
+// ---------------------------------------------------------------------------
+// Swap-prevention runtime — Next App Router / React 19 stylesheet hoisting
+// ---------------------------------------------------------------------------
+//
+// Next serves CSS as <link href="…/layout.css?v=<ts>"> and BUMPS ?v= on every
+// HMR rebuild. React hoists stylesheets keyed by the FULL href, so a bumped ?v=
+// is a brand-new resource: React inserts a fresh <link> + CSSStyleSheet and
+// tears the old one down (proven via a MutationObserver trace: add-new-THEN-
+// remove-old, old sheet already detached BEFORE removal). A DevTools CSS edit
+// lives on that old sheet, so it dies on the next save-triggered HMR — editing
+// "stops working after a save until you reselect the element".
+//
+// FIX: strip `?v=<digits>` from `_next/static/**.css` hrefs IN THE RSC FLIGHT
+// STREAM before React parses it. React then sees an UNCHANGED href across
+// rebuilds → dedups instead of swapping → the SAME CSSStyleSheet object lives
+// on → DevTools' edit binding survives → autosave + continuous editing work
+// (verified live: two stripped→stripped refreshes produce ZERO link add/remove).
+// DOM-level patches can't do this — React computes its resource key from the
+// flight href BEFORE touching the DOM, and blocking the swap desyncs React's
+// hoistable map → white screen. The flight strip is the only React-SAFE hook.
+//
+// Runs in the inspected page's MAIN world via inspectedWindow.eval; re-injected
+// on every reload (the fetch patch dies with the page context). Kill-switch:
+// `window.__devSyncNoSwap = false` disables it live (fetch passes through, prune
+// stops). Trade-off while ON: an editor-side CSS edit won't hot-reload (React
+// sees the same href) until a hard refresh — fine during a DevTools edit session.
+const NO_SWAP_RUNTIME = `(() => {
+  if (window.__devSyncNoSwapInstalled) { window.__devSyncNoSwap = true; return "already"; }
+  window.__devSyncNoSwapInstalled = true;
+  if (window.__devSyncNoSwap === undefined) window.__devSyncNoSwap = true;
+
+  const CSS_V = /(\\/_next\\/static\\/[^"'\\s?]+?\\.css)\\?v=\\d+/g;
+  const strip = (s) => s.replace(CSS_V, "$1");
+  const stripHref = (h) => (h || "").split("?")[0];
+  const hasV = (h) => /[?&]v=\\d+/.test(h || "");
+
+  // Is this an RSC flight response? Decide WITHOUT consuming a non-text body:
+  // Next flight fetches carry an "RSC"/prefetch request header and reply
+  // text/x-component; navigations also put "_rsc" in the URL.
+  const isFlight = (req, init, res, url) => {
+    try {
+      const ct = res.headers.get("content-type") || "";
+      if (ct.indexOf("text/x-component") !== -1) return true;
+      const hdr = (name) => {
+        if (req && req.headers && typeof req.headers.get === "function" && req.headers.get(name) != null) return true;
+        const h = init && init.headers;
+        if (!h) return false;
+        if (typeof h.get === "function") return h.get(name) != null;
+        return Object.keys(h).some((k) => k.toLowerCase() === name.toLowerCase());
+      };
+      if (hdr("RSC") || hdr("Next-Router-Prefetch") || hdr("Next-Router-State-Tree")) return true;
+      return String(url || "").indexOf("_rsc") !== -1;
+    } catch { return false; }
+  };
+
+  const origFetch = window.fetch;
+  window.fetch = async function (input, init) {
+    const res = await origFetch.call(this, input, init);
+    if (window.__devSyncNoSwap === false) return res;
+    const req = (input && typeof input === "object" && "url" in input) ? input : null;
+    const url = req ? req.url : String(input || "");
+    let flight;
+    try { flight = isFlight(req, init, res, url); } catch { flight = false; }
+    if (!flight) return res;
+    try {
+      const txt = await res.text();
+      const patched = strip(txt);
+      // Rebuild the Response from the (possibly rewritten) text. Drop length/
+      // encoding headers — the browser re-encodes the decoded string, so the
+      // originals no longer match. Buffering forfeits streaming, but dev HMR
+      // refresh payloads are small + already complete.
+      const h = new Headers(res.headers);
+      h.delete("content-length");
+      h.delete("content-encoding");
+      return new Response(patched, { status: res.status, statusText: res.statusText, headers: h });
+    } catch {
+      return res; // opaque / already-consumed body — let it through untouched
+    }
+  };
+
+  // Prune the orphaned ?v= <link> left behind on the FIRST ?v=→stripped
+  // transition: React inserts the stripped resource but never removes the old
+  // one (it deduped away from it, so it's unreferenced by any fiber and safe to
+  // drop). Only remove a ?v= link once its stripped twin is live, so the page is
+  // never briefly unstyled. Steady state (all stripped) inserts no link → no-op.
+  const pruneStale = () => {
+    if (window.__devSyncNoSwap === false) return;
+    const links = [...document.querySelectorAll('link[rel="stylesheet"]')];
+    const stripped = new Set();
+    for (const l of links) if (!hasV(l.href)) stripped.add(stripHref(l.href));
+    for (const l of links) {
+      if (hasV(l.href) && stripped.has(stripHref(l.href))) {
+        try { l.remove(); } catch {}
+      }
+    }
+  };
+  new MutationObserver((muts) => {
+    for (const m of muts) {
+      for (const n of m.addedNodes) {
+        if (n.nodeType === 1 && n.tagName === "LINK" && n.rel === "stylesheet") {
+          requestAnimationFrame(pruneStale);
+          return;
+        }
+      }
+    }
+  }).observe(document.documentElement, { childList: true, subtree: true });
+  window.__devSyncNoSwapPrune = pruneStale;
+  pruneStale();
+  return "installed";
+})()`;
+
+/**
+ * Install the swap-prevention runtime in the inspected page's main world. Safe
+ * to call repeatedly (the runtime self-guards) — re-run on every reload since
+ * the fetch patch dies with the page context.
+ */
+function injectNoSwapRuntime() {
+  chrome.devtools.inspectedWindow.eval(NO_SWAP_RUNTIME, (_result, exc) => {
+    if (exc && (exc.isError || exc.isException)) {
+      console.warn("[dev-sync] no-swap runtime inject failed", exc);
+    }
+  });
+}
+
 startCssPolling();
+injectNoSwapRuntime();
 
 // ---------------------------------------------------------------------------
 // Sync to source (POST /apply)
@@ -1133,10 +1381,17 @@ async function syncToSource(opts = {}) {
   syncing = true;
 
   try {
+    const url = await getInspectedUrl();
+    // Snapshot the exact objects we're about to POST, keyed by changeKey. The
+    // 500ms poller can call addChange during the awaits below; addChange always
+    // set()s a FRESH object for a key (590), so comparing identity after the
+    // response tells us whether an "applied" key was since replaced by a newer,
+    // never-sent edit — which we must NOT delete (see the cleanup below).
+    const sent = new Map(changes);
     /** @type {import("@dev-sync/contract").CapturePayload} */
     const payload = {
-      url: await getInspectedUrl(),
-      changes: [...changes.values()],
+      url,
+      changes: [...sent.values()],
       // Headless autosave has no preview UI, so it must always request an
       // immediate commit. The contract's applyMode defaults to "preview" —
       // without this, autosave would silently stop writing anything the
@@ -1195,10 +1450,34 @@ async function syncToSource(opts = {}) {
     // failure of any kind notify afresh.
     clearErrorToast();
 
-    // Applied changes are now in source; drop them from the pending list.
+    // Applied changes are now in source; drop them — but ONLY if the pending
+    // entry is still the exact object we sent. A poller's addChange during the
+    // await above replaces changes.get(key) with a FRESH object (see `sent`)
+    // whose newValue the server never saw; deleting by key alone would silently
+    // discard that unsent edit ("edited again and it didn't update"). Compare
+    // identity: a replaced entry survives and gets re-synced (re-armed below).
     const appliedKeys = new Set(result.applied.map((o) => changeKey(o.change)));
-    for (const key of [...changes.keys()]) {
-      if (appliedKeys.has(key)) changes.delete(key);
+    let hasSurvivors = false;
+    for (const key of appliedKeys) {
+      if (changes.get(key) === sent.get(key)) changes.delete(key);
+      else if (changes.has(key)) hasSurvivors = true;
+    }
+
+    // Arm the post-save settle guard for every applied CSS modify: the value we
+    // just OVERWROTE (its oldValue) is what the HMR swap window will transiently
+    // show, so a modify bouncing back to it within POST_SAVE_SETTLE_MS is churn,
+    // not a user edit (see cssPostSaveGuard). Keyed exactly like the poller's
+    // gkey — `${sheet.key}|selector|property`, where the poller stamps
+    // `styleSheet.id = "eval:" + sheet.key`.
+    const settleExpiry = Date.now() + POST_SAVE_SETTLE_MS;
+    for (const o of result.applied) {
+      const c = o && o.change;
+      if (!c || c.op !== "modify" || !c.styleSheet || typeof c.selector !== "string") continue;
+      const sk = String(c.styleSheet.id || "").replace(/^eval:/, "");
+      cssPostSaveGuard.set(`${sk}|${c.selector}|${c.property}`, {
+        value: c.oldValue,
+        expiry: settleExpiry,
+      });
     }
 
     // A skipped `set-text` means the server refused to rewrite that element's
@@ -1259,10 +1538,28 @@ async function syncToSource(opts = {}) {
     // Clean apply clears any latched yellow; an ACTIONABLE skip or an unresolved
     // placement keeps the badge amber so the real problem stays visible. Expected
     // dynamic-markup skips are excluded — they're silent, self-suppressing, and
-    // must not strand the badge amber for a healthy session.
+    // must not strand the badge amber for a healthy session. Surface the FIRST
+    // actionable reason as the amber detail so the HUD says WHY, not just "issues".
+    let statusDetail = "";
+    if (actionableSkips.length > 0) {
+      const reason = actionableSkips[0] && actionableSkips[0].reason;
+      statusDetail = (typeof reason === "string" && reason ? reason : "an edit was skipped").slice(0, 160);
+    } else if (result.needsPlacement.length > 0) {
+      const n = result.needsPlacement.length;
+      statusDetail = `${n} ${n === 1 ? "rule needs" : "rules need"} a target file — open the panel`;
+    }
     setStatus(
-      actionableSkips.length > 0 || result.needsPlacement.length > 0 ? "yellow" : "green"
+      actionableSkips.length > 0 || result.needsPlacement.length > 0 ? "yellow" : "green",
+      statusDetail,
     );
+
+    // A poller queued a newer edit onto an in-flight key while this sync ran
+    // (kept as a survivor above). Re-arm autosave so that real, appliable edit
+    // isn't stranded until the user's next keystroke. Scoped to survivors only:
+    // a stuck actionable skip (e.g. "selector not found") also lingers in
+    // `changes`, but re-arming for it would re-POST-and-re-skip forever — those
+    // correctly wait for the next genuine edit.
+    if (hasSurvivors) scheduleAutosave();
   } finally {
     syncing = false;
   }

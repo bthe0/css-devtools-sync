@@ -241,13 +241,16 @@ function makeDraggable(host, frame, handle, ignore) {
   });
 }
 
-function setStatus(state) {
+function setStatus(state, detail) {
   const h = buildHud();
   const s = STATUS_COLOR[state] ? state : "idle";
+  // A yellow detail (the specific skip/placement reason from devtools.js) replaces
+  // the generic "last edit had issues" so the user sees WHAT went wrong in-page.
+  const label = s === "yellow" && detail ? `Last edit: ${detail}` : STATUS_LABEL[s];
   h.badge.style.background = STATUS_COLOR[s];
-  h.badge.setAttribute("aria-label", STATUS_LABEL[s]);
-  h.badge.title = STATUS_LABEL[s];
-  h.statusEl.textContent = STATUS_LABEL[s];
+  h.badge.setAttribute("aria-label", label);
+  h.badge.title = label;
+  h.statusEl.textContent = label;
   h.statusEl.style.color = s === "idle" ? "#9aa1b3" : STATUS_COLOR[s];
 }
 
@@ -344,7 +347,7 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === "dev-sync:message" && typeof msg.text === "string") {
     pushMessage(msg.text, msg.kind);
   } else if (msg.type === "dev-sync:status") {
-    setStatus(String(msg.state || "idle"));
+    setStatus(String(msg.state || "idle"), typeof msg.detail === "string" ? msg.detail : "");
   } else if (msg.type === "dev-sync:pending") {
     setPending(Number(msg.count) || 0);
   } else if (msg.type === "dev-sync:teardown") {

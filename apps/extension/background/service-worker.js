@@ -25,14 +25,10 @@
 
 import {
   diffSheet,
-  elementContextFromSrcLoc,
-  buildSetTextChange,
 } from "./diff.js";
 import { summarizeAutosave } from "./summary.js";
 
-const PROTOCOL_VERSION = "1.3";
 const DIFF_DEBOUNCE_MS = 300;
-const TEXT_NODE_TYPE = 3;
 // NOTE: CSS.styleSheetChanged is delivered ONLY to the CDP session that made
 // the edit, and CSS.getStyleSheetText returns text frozen at attach for a
 // secondary session. The user edits through the DevTools frontend's session,
@@ -48,9 +44,6 @@ const TEXT_NODE_TYPE = 3;
  *   port: chrome.runtime.Port,
  *   sheets: Map<styleSheetId, {ref: StyleSheetRef, text: string}>,
  *   debounce: Map<styleSheetId, timeoutId>,               // CSS
- *   attrDebounce: Map<"nodeId\0name", timeoutId>,      // DOM attributes
- *   textDebounce: Map<nodeId, timeoutId>,                  // DOM text
- *   domNodes: Map<nodeId, {nodeType, nodeName, parentId, nodeValue?}>,
  *   lastElementContext: ElementContext | null,
  *   attached: boolean,
  * }
@@ -73,18 +66,6 @@ function cdp(tabId, method, params) {
   });
 }
 
-function debuggerAttach(tabId) {
-  return new Promise((resolve, reject) => {
-    chrome.debugger.attach({ tabId }, PROTOCOL_VERSION, () => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-      } else {
-        resolve();
-      }
-    });
-  });
-}
-
 function debuggerDetach(tabId) {
   return new Promise((resolve) => {
     chrome.debugger.detach({ tabId }, () => {
@@ -96,76 +77,6 @@ function debuggerDetach(tabId) {
 }
 
 // ---------------------------------------------------------------------------
-// DOM node tracking — enough to resolve a mutated nodeId back to an
-// ElementContext without walking the whole tree on every event.
-// ---------------------------------------------------------------------------
-
-function indexNode(node, parentId, map) {
-  if (!node) return;
-  map.set(node.nodeId, {
-    nodeType: node.nodeType,
-    nodeName: node.nodeName,
-    parentId: parentId ?? node.parentId ?? null,
-    nodeValue: node.nodeType === TEXT_NODE_TYPE ? node.nodeValue : undefined,
-  });
-  for (const child of node.children ?? []) indexNode(child, node.nodeId, map);
-  if (node.contentDocument) indexNode(node.contentDocument, node.nodeId, map);
-  for (const root of node.shadowRoots ?? []) indexNode(root, node.nodeId, map);
-}
-
-/** Resolve a nodeId to an ElementContext by reading the node's off-DOM
- * `__srcLoc` property (attached by the source-locator runtime ref) plus its
- * tag + class list — via DOM.resolveNode -> Runtime.callFunctionOn. Source
- * location no longer lives in DOM attributes, so a getAttributes read would
- * find nothing. Returns a context with no source fields (-> caller skips) if
- * the node can't be resolved. */
-async function resolveElementContext(tabId, nodeId) {
-  const session = sessions.get(tabId);
-  if (!session) return null;
-
-  let objectId;
-  try {
-    const resolved = await cdp(tabId, "DOM.resolveNode", { nodeId });
-    objectId = resolved?.object?.objectId;
-  } catch {
-    return null; // node gone / not resolvable
-  }
-  if (!objectId) return null;
-
-  let value = null;
-  try {
-    const { result } = await cdp(tabId, "Runtime.callFunctionOn", {
-      objectId,
-      functionDeclaration:
-        "function(){return {tagName:this.tagName," +
-        "classList:this.classList?Array.prototype.slice.call(this.classList):[]," +
-        "srcLoc:this.__srcLoc||null};}",
-      returnByValue: true,
-    });
-    value = result?.value ?? null;
-  } catch {
-    return null;
-  } finally {
-    try {
-      await cdp(tabId, "Runtime.releaseObject", { objectId });
-    } catch {
-      // object already gone — nothing to release
-    }
-  }
-
-  if (!value) return null;
-  return elementContextFromSrcLoc(value.tagName, value.classList, value.srcLoc);
-}
-
-function emitDiffResult(tabId, result) {
-  if (result.ok) {
-    postToPanel(tabId, { type: "change", change: result.change });
-  } else {
-    postToPanel(tabId, { type: "skip", reason: result.reason });
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Session lifecycle
 // ---------------------------------------------------------------------------
 
@@ -174,9 +85,6 @@ async function startSession(tabId, port) {
     port,
     sheets: new Map(),
     debounce: new Map(),
-    attrDebounce: new Map(),
-    textDebounce: new Map(),
-    domNodes: new Map(),
     lastElementContext: null,
     attached: false,
   };
@@ -200,8 +108,6 @@ async function stopSession(tabId, { detach = true } = {}) {
   const session = sessions.get(tabId);
   if (!session) return;
   for (const t of session.debounce.values()) clearTimeout(t);
-  for (const t of session.attrDebounce.values()) clearTimeout(t);
-  for (const t of session.textDebounce.values()) clearTimeout(t);
   sessions.delete(tabId);
   if (detach && session.attached) await debuggerDetach(tabId);
 }
@@ -299,25 +205,6 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
     case "CSS.styleSheetRemoved":
       sessions.get(tabId)?.sheets.delete(params.styleSheetId);
       break;
-    case "DOM.setChildNodes":
-      onSetChildNodes(tabId, params);
-      break;
-    case "DOM.childNodeInserted":
-      onChildNodeInserted(tabId, params);
-      break;
-    case "DOM.childNodeRemoved":
-      onChildNodeRemoved(tabId, params);
-      break;
-    // DOM attribute + character-data mutations are captured by the devtools_page
-    // eval-poller now (set-attr / remove-attr / set-text via inspectedWindow.eval),
-    // reading the page's real live state. The chrome.debugger handlers below are a
-    // SEPARATE CDP session that double-emitted AND fired phantom edits on framework
-    // re-renders (a Tailwind class swap's HMR re-render emitted a spurious set-attr
-    // on `class`). Stop dispatching to them — the poller is the single DOM source.
-    case "DOM.attributeModified":
-    case "DOM.attributeRemoved":
-    case "DOM.characterDataModified":
-      break;
     default:
       break;
   }
@@ -395,78 +282,6 @@ async function diffAndEmit(tabId, styleSheetId) {
 }
 
 // ---------------------------------------------------------------------------
-// DOM tree bookkeeping — keeps domNodes fresh enough to resolve nodeIds.
-// ---------------------------------------------------------------------------
-
-function onSetChildNodes(tabId, { parentId, nodes }) {
-  const session = sessions.get(tabId);
-  if (!session) return;
-  for (const node of nodes ?? []) indexNode(node, parentId, session.domNodes);
-}
-
-function onChildNodeInserted(tabId, { parentNodeId, node }) {
-  const session = sessions.get(tabId);
-  if (!session) return;
-  indexNode(node, parentNodeId, session.domNodes);
-}
-
-function onChildNodeRemoved(tabId, { nodeId }) {
-  const session = sessions.get(tabId);
-  if (!session) return;
-  // Descendants of the removed node become unreachable too; their stale
-  // entries are harmless (never resolved again) and bounded by page
-  // lifetime, so we don't walk the subtree to prune them.
-  session.domNodes.delete(nodeId);
-}
-
-// ---------------------------------------------------------------------------
-// DOM text mutations -> set-text
-// ---------------------------------------------------------------------------
-
-function onCharacterDataModified(tabId, { nodeId, characterData }) {
-  const session = sessions.get(tabId);
-  if (!session) return;
-  clearTimeout(session.textDebounce.get(nodeId));
-  session.textDebounce.set(
-    nodeId,
-    setTimeout(() => {
-      session.textDebounce.delete(nodeId);
-      void emitTextChange(tabId, nodeId, characterData);
-    }, DIFF_DEBOUNCE_MS)
-  );
-}
-
-async function emitTextChange(tabId, nodeId, newText) {
-  const session = sessions.get(tabId);
-  if (!session) return;
-
-  const textNode = session.domNodes.get(nodeId);
-  const parentId = textNode?.parentId;
-  if (parentId == null) {
-    postToPanel(tabId, {
-      type: "skip",
-      reason:
-        "Skipped set-text: could not resolve the edited text node's parent element " +
-        "(no DOM.setChildNodes/getDocument record for this node — try re-attaching)",
-    });
-    return;
-  }
-
-  const oldText = textNode.nodeValue;
-  let context;
-  try {
-    context = await resolveElementContext(tabId, parentId);
-  } catch (err) {
-    postError(tabId, "getAttributes", err);
-    return;
-  }
-
-  textNode.nodeValue = newText; // keep the tracked snapshot current
-
-  emitDiffResult(tabId, buildSetTextChange(context, newText, oldText));
-}
-
-// ---------------------------------------------------------------------------
 // Computed-style reads (for the Verify round-trip)
 // ---------------------------------------------------------------------------
 
@@ -517,6 +332,10 @@ chrome.runtime.onConnect.addListener((port) => {
   });
 
   async function handlePanelMessage(msg) {
+    // A malformed port message (null / non-object / no string type) would throw
+    // here — and since this runs via `void handlePanelMessage` (516) that becomes
+    // an unhandled promise rejection. Guard like the runtime listener at 242.
+    if (!msg || typeof msg.type !== "string") return;
     switch (msg.type) {
       case "attach": {
         tabId = msg.tabId;
@@ -583,7 +402,11 @@ chrome.runtime.onConnect.addListener((port) => {
         if (tabId === null) break;
         chrome.tabs.sendMessage(
           tabId,
-          { type: "dev-sync:status", state: String(msg.state ?? "idle") },
+          {
+            type: "dev-sync:status",
+            state: String(msg.state ?? "idle"),
+            detail: typeof msg.detail === "string" ? msg.detail : "",
+          },
           () => {
             void chrome.runtime.lastError;
           }
@@ -705,6 +528,7 @@ chrome.runtime.onConnect.addListener((port) => {
   let tabId = null;
 
   port.onMessage.addListener((msg) => {
+    if (!msg || typeof msg.type !== "string") return; // ignore malformed messages
     switch (msg.type) {
       case "preview-subscribe": {
         tabId = msg.tabId;

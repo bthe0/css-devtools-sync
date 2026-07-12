@@ -216,8 +216,19 @@ export function applyInlinePromote(
 
   // (2) compute the overrides stylesheet edit.
   const overridesAbs = jailResolve(cfg.workspaceRoot, cfg.overridesFile);
-  const overridesExists = fs.existsSync(overridesAbs) && fs.statSync(overridesAbs).isFile();
-  const overridesCss = overridesExists ? fs.readFileSync(overridesAbs, "utf8") : "";
+  const overridesStat = fs.existsSync(overridesAbs) ? fs.statSync(overridesAbs) : null;
+  // A misconfigured overridesFile pointing at a directory would surface as an
+  // EISDIR 500 on write — skip it cleanly instead.
+  if (overridesStat?.isDirectory()) {
+    throw new SkipChangeError(
+      `overrides target "${cfg.overridesFile}" is a directory, not a file — cannot write the promoted rule there`,
+    );
+  }
+  const overridesCss = overridesStat?.isFile() ? fs.readFileSync(overridesAbs, "utf8") : "";
+  // NOTE: creating the parent dir is the COMMIT write's job (writeWorkspaceFile
+  // mkdirs before writing). Doing it here would fire during PREVIEW too — this
+  // function computes writes for both paths — breaking the preview-is-pure
+  // invariant. Keep this function side-effect-free.
   const upsert = upsertOverrideRule(overridesCss, change.className, change.declarations);
 
   // (3) both computed safely — emit the two planned writes in commit order

@@ -138,6 +138,26 @@ async function finalizeChange(
     const written: PlannedWrite[] = [];
     try {
       for (const w of changed) {
+        // Guard the read-modify-write race: `w.before` was captured when this
+        // edit was COMPUTED (applyOne read the file). Between then and now a
+        // concurrent /apply request or an external editor may have written the
+        // file. Re-read immediately before writing and, if the on-disk content
+        // has drifted from what we planned against, skip rather than clobber it
+        // with last-writer-wins. The common path (disk still == before, no
+        // concurrent writer — including sequential same-file changes in one
+        // request, which re-read disk per change) sees no drift and proceeds.
+        let current: string;
+        try {
+          current = fs.readFileSync(w.absFile, "utf8");
+        } catch (readErr) {
+          if ((readErr as NodeJS.ErrnoException).code === "ENOENT") current = "";
+          else throw readErr;
+        }
+        if (current !== w.before) {
+          throw new SkipChangeError(
+            "target file changed on disk since this edit was computed — skipped to avoid clobbering",
+          );
+        }
         writeWorkspaceFile(cfg.workspaceRoot, w.absFile, w.after);
         written.push(w);
       }

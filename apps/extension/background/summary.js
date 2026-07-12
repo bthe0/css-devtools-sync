@@ -6,8 +6,9 @@
 /** Last path segment of a workspace-relative file (posix or win separators). */
 export function baseName(file) {
   if (typeof file !== "string" || file.length === 0) return "";
-  const parts = file.split(/[/\\]/);
-  return parts[parts.length - 1] || file;
+  const trimmed = file.replace(/[/\\]+$/, ""); // drop trailing seps so "a/b/" -> "b"
+  const parts = trimmed.split(/[/\\]/);
+  return parts[parts.length - 1] || trimmed;
 }
 
 /**
@@ -21,18 +22,23 @@ export function summarizeAutosave(applied, skipped = 0, maxFiles = 3) {
   const appliedList = Array.isArray(applied) ? applied : [];
   const skippedCount = Number.isInteger(skipped) && skipped > 0 ? skipped : 0;
 
-  // Unique file basenames, first-seen order preserved.
+  // Unique file basenames, first-seen order preserved. `named` counts every
+  // outcome that carries a basename — fileless outcomes contribute no arrow, so
+  // counting them would dangle the arrow with an empty file list.
   const seen = new Set();
   const files = [];
+  let named = 0;
   for (const o of appliedList) {
     const name = baseName(o && o.file);
-    if (name && !seen.has(name)) {
+    if (!name) continue;
+    named += 1;
+    if (!seen.has(name)) {
       seen.add(name);
       files.push(name);
     }
   }
 
-  const n = appliedList.length;
+  const n = named;
 
   if (n === 0) {
     // Nothing written — only meaningful if something was actually skipped.
@@ -45,7 +51,8 @@ export function summarizeAutosave(applied, skipped = 0, maxFiles = 3) {
     return { text: "Nothing to autosave", kind: "warn" };
   }
 
-  const shown = files.slice(0, maxFiles);
+  const cap = Math.max(1, maxFiles); // clamp: maxFiles<=0 would drop every file, leaving a leading comma
+  const shown = files.slice(0, cap);
   const extra = files.length - shown.length;
   let fileList = shown.join(", ");
   if (extra > 0) fileList += `, +${extra} more`;

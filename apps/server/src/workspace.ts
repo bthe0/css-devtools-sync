@@ -140,6 +140,11 @@ export function readWorkspaceFile(workspaceRoot: string, target: string): string
 /** Jailed write — the ONLY way the server writes files. */
 export function writeWorkspaceFile(workspaceRoot: string, target: string, content: string): string {
   const abs = jailResolve(workspaceRoot, target);
+  // Ensure the parent dir exists before writing so a not-yet-created nested
+  // target (e.g. an overridesFile at src/generated/deep/overrides.css) doesn't
+  // ENOENT. `abs` is already inside the resolved jail, so this only ever mkdirs
+  // under the workspace root — no directory can be created outside it.
+  fs.mkdirSync(path.dirname(abs), { recursive: true });
   fs.writeFileSync(abs, content, "utf8");
   return abs;
 }

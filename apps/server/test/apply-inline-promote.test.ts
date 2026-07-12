@@ -21,12 +21,16 @@ function applyInlinePromote(
   ...args: Parameters<typeof applyInlinePromotePure>
 ): ReturnType<typeof applyInlinePromotePure> {
   const res = applyInlinePromotePure(...args);
+  const cfg = args[1];
+  // Persist through the real jailed write (which mkdirs the parent dir), exactly
+  // as the apply.ts commit spine does — the pure function no longer touches disk.
   for (const w of res.writes) {
-    if (w.before !== w.after) fs.writeFileSync(w.absFile, w.after, "utf8");
+    if (w.before !== w.after) writeWorkspaceFile(cfg.workspaceRoot, w.absFile, w.after);
   }
   return res;
 }
 import { SkipChangeError } from "../src/errors.js";
+import { writeWorkspaceFile } from "../src/workspace.js";
 import { buildServer } from "../src/server.js";
 
 /**
@@ -362,5 +366,64 @@ describe("promote-inline-style — end-to-end through /apply (routing + mode + c
       },
     });
     expect(res.statusCode).toBe(400);
+  });
+});
+
+describe("applyInlinePromote — overrides parent directory handling (fix #4)", () => {
+  it("promotes cleanly when the overrides file lives in a not-yet-existing nested dir (dir created)", () => {
+    const { root } = makeWorkspace(null); // no index.css
+    const cfg: Config = {
+      ...makeCfg(root),
+      overridesFile: "src/generated/deep/overrides.css",
+    };
+    const nestedAbs = path.join(root, "src", "generated", "deep", "overrides.css");
+    expect(fs.existsSync(path.dirname(nestedAbs))).toBe(false);
+
+    const res = applyInlinePromote(
+      promoteChange("csync-nested", [{ property: "color", value: "#0a0a0a" }]),
+      cfg,
+    );
+
+    expect(res.note).toMatch(/created rule/);
+    expect(fs.existsSync(nestedAbs)).toBe(true);
+    expect(fs.readFileSync(nestedAbs, "utf8")).toMatch(
+      /\.csync-nested\s*\{\s*color: #0a0a0a;\s*\}/,
+    );
+  });
+
+  it("PREVIEW (pure compute — no write) does NOT create the overrides parent dir", () => {
+    const { root } = makeWorkspace(null); // no index.css
+    const cfg: Config = {
+      ...makeCfg(root),
+      overridesFile: "src/generated/deep/overrides.css",
+    };
+    const nestedDir = path.join(root, "src", "generated", "deep");
+    expect(fs.existsSync(nestedDir)).toBe(false);
+
+    // The pure function is what runs during a PREVIEW: it computes the planned
+    // writes and must persist NOTHING — no file, and no side-effect directory.
+    const res = applyInlinePromotePure(
+      promoteChange("csync-preview", [{ property: "color", value: "#0b0b0b" }]),
+      cfg,
+    );
+
+    expect(res.writes).toHaveLength(2);
+    expect(fs.existsSync(nestedDir)).toBe(false); // preview stays pure
+  });
+
+  it("skips (SkipChangeError, not a 500) when the overrides path is a directory", () => {
+    const { root } = makeWorkspace(null);
+    const cfg: Config = {
+      ...makeCfg(root),
+      overridesFile: "src/overrides-as-dir",
+    };
+    fs.mkdirSync(path.join(root, "src", "overrides-as-dir"), { recursive: true });
+
+    expect(() =>
+      applyInlinePromote(
+        promoteChange("csync-dir", [{ property: "color", value: "red" }]),
+        cfg,
+      ),
+    ).toThrow(SkipChangeError);
   });
 });

@@ -11,6 +11,8 @@ test("baseName strips directories (posix + win) and handles edge inputs", () => 
   assert.equal(baseName("App.tsx"), "App.tsx");
   assert.equal(baseName(""), "");
   assert.equal(baseName(undefined), "");
+  assert.equal(baseName("a/b/"), "b"); // trailing sep must not swallow the basename
+  assert.equal(baseName("a\\b\\"), "b");
 });
 
 test("single applied change, no skips -> success", () => {
@@ -35,6 +37,24 @@ test("caps the file list with +N more", () => {
   const applied = ["a.css", "b.css", "c.css", "d.css", "e.css"].map((f) => ({ file: f }));
   const { text } = summarizeAutosave(applied, 0, 3);
   assert.equal(text, "Autosaved 5 changes → a.css, b.css, c.css, +2 more");
+});
+
+test("empty-file outcomes don't inflate the count or dangle the arrow", () => {
+  // Two outcomes have no basename -> only one real file, count must match.
+  const { text } = summarizeAutosave([{ file: "x.css" }, { file: "" }, { file: undefined }], 0);
+  assert.equal(text, "Autosaved 1 change → x.css");
+});
+
+test("all outcomes fileless -> generic label, no dangling arrow", () => {
+  const { text, kind } = summarizeAutosave([{ file: "" }, { file: "" }], 0);
+  assert.equal(text, "Nothing to autosave");
+  assert.equal(kind, "warn");
+});
+
+test("maxFiles=0 clamps to 1 -> no leading comma", () => {
+  const applied = ["a.css", "b.css", "c.css"].map((f) => ({ file: f }));
+  const { text } = summarizeAutosave(applied, 0, 0);
+  assert.equal(text, "Autosaved 3 changes → a.css, +2 more");
 });
 
 test("skips append a note and downgrade kind to warn", () => {

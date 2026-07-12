@@ -5,4 +5,7 @@ import { createDevSyncHandler, engineApiConfig } from "@dev-sync/webpack/handler
 
 export const config = engineApiConfig; // engine reads the raw body itself
 
-export default createDevSyncHandler();
+// overridesFile: promoted inline-style rules must land in a sheet this app
+// actually imports — App Router loads app/globals.css (via layout.tsx), never
+// the Vite-default src/index.css, so point promotion there.
+export default createDevSyncHandler({ overridesFile: "app/globals.css" });

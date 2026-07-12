@@ -34,12 +34,12 @@ export default function Home() {
 
   return (
     <main className="page">
-      <h1 className="page__title">EEEE</h1>
+      <h1 className="page__title">AAAAA</h1>
       <p className="page__subtitle">CUCU</p>
       <section className="tier">
         <h2 className="tier__heading">Tier: plain CSS — globals.css</h2>
-        <article className="plain-card">
-          <h3 className="plain-card__title">Pipeline #128</h3>
+        <article className="plain-card csync-1tlhugm">
+          <h3 className="plain-card__title csync-1tlhugl">12345</h3>
           <p className="plain-card__body">All checks green on main</p>
           <span className="plain-card__badge">passing</span>
         </article>

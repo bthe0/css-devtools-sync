@@ -177,6 +177,41 @@ describe("applyCssChange — modify", () => {
       }),
     ).toThrow(SkipChangeError);
   });
+
+  it("rewrites the position-anchored duplicate whose new value collides with an EARLIER sibling", () => {
+    // Three .box rules. A position-anchored modify targets the LAST one
+    // (color: blue), changing it to a value an EARLIER sibling already holds
+    // (green). After the edit two rules read green, so the finish structural
+    // re-check's by-value filter matches BOTH — and without the source position
+    // threaded through it would relocate the FIRST green (2 decls), whose
+    // declaration count differs from the rule we actually edited (1 decl), and
+    // false-throw SkipChangeError. Threading the position makes it relocate the
+    // exact rule we rewrote, so the write goes through.
+    const dupSource =
+      ".box {\n  color: green;\n  padding: 0;\n}\n" + // rules 1: green, 2 decls
+      ".box {\n  color: red;\n}\n" + // rule 2: red
+      ".box {\n  color: blue;\n}\n"; // rule 3 (line 8): target
+    const res = applyCssChange(
+      dupSource,
+      {
+        op: "modify",
+        styleSheet: sheet,
+        selector: ".box",
+        property: "color",
+        oldValue: "blue",
+        newValue: "green", // the FIRST .box already holds green
+      },
+      { position: { line: 8, column: 1 } }, // anchor on the THIRD rule
+    );
+    // exactly the third rule changed: first stays green (+padding), second stays
+    // red, and there are now two green color declarations, one red, no blue.
+    expect(res.css.match(/color: green;/g)?.length).toBe(2);
+    expect(res.css.match(/color: red;/g)?.length).toBe(1);
+    expect(res.css.match(/color: blue;/g)?.length ?? 0).toBe(0);
+    expect(res.css).toContain("padding: 0;"); // untouched sibling decl survives
+    // the rewritten rule is the 3rd (its color decl is on line 9), not the 1st
+    expect(res.line).toBe(9);
+  });
 });
 
 describe("applyCssChange — add-decl / delete-decl", () => {
@@ -500,5 +535,66 @@ describe("applyCssChange — add-rule with @media placement", () => {
     });
     // everything except the single edited value is byte-identical
     expect(res.css.replace("color: blue;", "color: red;")).toBe(FIXTURE);
+  });
+});
+
+describe("duplicate selector+media disambiguation (fix #2: modify targets the reported oldValue)", () => {
+  const DUP = `.box {
+  color: red;
+}
+
+.box {
+  color: blue;
+}
+`;
+
+  it("a modify carrying the SECOND rule's oldValue rewrites the SECOND, not the first", () => {
+    const res = applyCssChange(DUP, {
+      op: "modify",
+      styleSheet: sheet,
+      selector: ".box",
+      property: "color",
+      oldValue: "blue", // the second duplicate
+      newValue: "green",
+    });
+    // The second rule became green; the first (red) is untouched.
+    expect(res.css).toBe(DUP.replace("color: blue;", "color: green;"));
+    expect(res.css).toContain("color: red;");
+    expect(res.css).toContain("color: green;");
+    expect(res.css).not.toContain("color: blue;");
+  });
+
+  it("a modify carrying the FIRST rule's oldValue still rewrites the FIRST", () => {
+    const res = applyCssChange(DUP, {
+      op: "modify",
+      styleSheet: sheet,
+      selector: ".box",
+      property: "color",
+      oldValue: "red", // the first duplicate
+      newValue: "black",
+    });
+    expect(res.css).toBe(DUP.replace("color: red;", "color: black;"));
+    expect(res.css).toContain("color: blue;");
+    expect(res.css).toContain("color: black;");
+  });
+});
+
+describe("delete-decl of a doubled property (fix #3: removes only the last occurrence)", () => {
+  it("removes only the last `color`, leaving the first", () => {
+    const DOUBLED = `.warn {
+  color: red;
+  color: blue;
+}
+`;
+    const res = applyCssChange(DOUBLED, {
+      op: "delete-decl",
+      styleSheet: sheet,
+      selector: ".warn",
+      property: "color",
+    });
+    // Only the cascade winner (last) is gone; the first survives.
+    expect(res.css).toContain("color: red;");
+    expect(res.css).not.toContain("color: blue;");
+    expect(res.css.match(/color:/g)?.length).toBe(1);
   });
 });

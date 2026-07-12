@@ -43,7 +43,6 @@ body {
 }
 
 .tier {
-  margin-bottom: 32px;
 }
 
 .tier__heading {
@@ -55,11 +54,11 @@ body {
 }
 
 .plain-card {
-  background: #1b1e2b;
-  border: 1px solid #2c3145;
+  background: rgb(11, 12, 15);
+  border: 1px solid rgb(29, 55, 160);
   border-radius: 12px;
-  padding: 20px 22px;
-  max-width: 420px;
+  padding: 0px 20px;
+  max-width: 452px;
 }
 
 .plain-card__title {
@@ -90,4 +89,12 @@ body {
   color: #fff;
   font-size: 12px;
   font-weight: 600;
+}
+
+.csync-1tlhugl {
+  margin-top: 30px;
+}
+
+.csync-1tlhugm {
+  margin-bottom: 50px;
 }

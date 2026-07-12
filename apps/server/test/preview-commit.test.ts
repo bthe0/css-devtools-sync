@@ -11,7 +11,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 import type { CapturePayloadInput, ModifyChange } from "@dev-sync/contract";
 import type { Config } from "../src/config.js";
@@ -203,5 +203,53 @@ describe("commit recomputes against the current file (no stale-plan replay)", ()
     const onDisk = fs.readFileSync(cssAbs, "utf8");
     expect(onDisk).toContain("color: blue");
     expect(onDisk).toContain(".other { margin: 0; }"); // untouched sibling survives
+  });
+});
+
+describe("commit guards the read-modify-write race (fix #1)", () => {
+  it("skips a change whose target file drifted on disk between compute and commit", async () => {
+    const { root, cssAbs } = makeWorkspace(); // .card { color: red; }
+    const cfg = makeCfg(root);
+    const app = await buildServer(cfg);
+    apps.push(app);
+
+    // Simulate a concurrent writer: right after applyOne reads the file to
+    // capture `before` (red), land an external edit (green) on disk. The commit
+    // path re-reads before writing and must see the drift, skip, and NOT clobber
+    // the green with its stale blue. Hook the FIRST read of the target file.
+    const realRead = fs.readFileSync.bind(fs);
+    let injected = false;
+    const spy = vi.spyOn(fs, "readFileSync").mockImplementation(((p: unknown, opts: unknown) => {
+      const content = realRead(p as fs.PathOrFileDescriptor, opts as never);
+      if (!injected && typeof p === "string" && p.endsWith("app.css")) {
+        injected = true; // external edit lands in the compute→commit window
+        fs.writeFileSync(cssAbs, ".card { color: green; }\n", "utf8");
+      }
+      return content;
+    }) as typeof fs.readFileSync);
+
+    try {
+      const body = (await apply(app, [cardColorChange()], "commit")).json() as Result;
+      expect(body.applied).toHaveLength(0);
+      expect(body.skipped).toHaveLength(1);
+      expect(body.skipped[0]!.reason).toMatch(/changed on disk/i);
+      // The concurrent writer's content survives; it is NOT clobbered with blue.
+      expect(fs.readFileSync(cssAbs, "utf8")).toBe(".card { color: green; }\n");
+    } finally {
+      spy.mockRestore();
+    }
+
+    // And nothing was journaled for the skipped change.
+    expect(await readJournal(cfg)).toHaveLength(0);
+  });
+
+  it("a normal single write with no drift still commits (control)", async () => {
+    const { root, cssAbs } = makeWorkspace();
+    const app = await buildServer(makeCfg(root));
+    apps.push(app);
+    const body = (await apply(app, [cardColorChange()], "commit")).json() as Result;
+    expect(body.skipped).toHaveLength(0);
+    expect(body.applied).toHaveLength(1);
+    expect(fs.readFileSync(cssAbs, "utf8")).toContain("color: blue");
   });
 });

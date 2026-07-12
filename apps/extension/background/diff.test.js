@@ -129,6 +129,22 @@ test("diffSheet: delete-decl — whole rule removed emits one delete-decl per de
   );
 });
 
+test("diffSheet: delete-decl — deleting the FIRST of two same-selector rules is a clean removal", () => {
+  // Two rules share (mediaText, selector) = ("", ".box"). The FIRST (red) is
+  // deleted; only the SECOND (blue) survives. Positional occurrence-index keying
+  // mis-diffs this as modify(red->blue on survivor) + delete(the last blue).
+  // Correct: one clean delete-decl for the removed red rule's declaration.
+  const oldText = ".box { color: red; }\n.box { color: blue; }";
+  const newText = ".box { color: blue; }";
+  const changes = diffSheet(SHEET_REF, oldText, newText);
+
+  assert.equal(changes.length, 1);
+  assert.deepEqual(
+    { op: changes[0].op, property: changes[0].property, selector: changes[0].selector },
+    { op: "delete-decl", property: "color", selector: ".box" },
+  );
+});
+
 // ---------------------------------------------------------------------------
 // CSS: add-rule
 // ---------------------------------------------------------------------------

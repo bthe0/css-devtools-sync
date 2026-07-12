@@ -277,6 +277,19 @@ function editJsxClass(
           return false;
         }
       } else if (add.length > 0) {
+        // A spread ({...props}) can carry its own className. JSX resolves
+        // duplicate attributes last-wins, so appending a fresh className here
+        // would either clobber the spread's className (dropping the element's
+        // real classes) or be clobbered by a later spread (our promoted class
+        // silently ineffective). We can't tell statically which — refuse rather
+        // than corrupt the element. (The explicit-className branch above is
+        // unaffected: we edit the attribute the author already wrote.)
+        if (attrs.some((a) => a.type === "JSXSpreadAttribute")) {
+          skip = new SkipChangeError(
+            "className may come from a spread ({...props}); cannot add it deterministically",
+          );
+          return false;
+        }
         const next = applyTokens("", remove, add);
         const valueNode = buildAttrValueNode("className", next) as Parameters<typeof b.jsxAttribute>[1];
         (node.attributes as unknown[]).push(b.jsxAttribute(b.jsxIdentifier("className"), valueNode));

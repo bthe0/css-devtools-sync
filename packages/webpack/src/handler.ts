@@ -20,6 +20,15 @@ import { configFromRoot, createApplyMiddleware } from "@dev-sync/server/engine";
 export interface DevSyncHandlerOptions {
   /** Workspace root every engine write is jailed under. Defaults to `process.cwd()`. */
   root?: string;
+  /**
+   * Workspace-relative stylesheet that promoted inline-style edits
+   * (`promote-inline-style`) upsert their generated `.csync-*` rule into. MUST be
+   * a stylesheet the app actually imports/serves, or the promoted rule lands in a
+   * file the browser never loads and the style silently has no effect. Defaults
+   * to `src/index.css` (the Vite convention) — Next App Router apps want their
+   * imported global sheet here, e.g. `"app/globals.css"`.
+   */
+  overridesFile?: string;
 }
 
 /** Next needs the raw request stream intact — the engine buffers the body itself. */
@@ -34,7 +43,10 @@ export function toEnginePath(url: string): string {
 export function createDevSyncHandler(
   options: DevSyncHandlerOptions = {},
 ): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
-  const cfg = configFromRoot(options.root ?? process.cwd());
+  const cfg = configFromRoot(
+    options.root ?? process.cwd(),
+    options.overridesFile ? { overridesFile: options.overridesFile } : {},
+  );
   const middleware = createApplyMiddleware(cfg);
 
   return function devSyncApiHandler(req: IncomingMessage, res: ServerResponse): Promise<void> {

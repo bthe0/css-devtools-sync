@@ -110,6 +110,24 @@ export interface RulePosition {
 }
 
 /**
+ * Extra signals used to pick the RIGHT rule when a selector+media is duplicated.
+ * DevTools reports the value the targeted declaration currently holds
+ * (`oldValue`) and, when a sourcemap resolved one, its source position — either
+ * lets us edit the specific duplicate the user touched instead of blindly the
+ * first. `property` names the declaration whose value `oldValue` refers to.
+ */
+interface DisambiguateHint {
+  property: string;
+  oldValue?: string | undefined;
+  position?: RulePosition | undefined;
+}
+
+/** The exact text a declaration renders as (value + optional !important), for equality against a reported oldValue. */
+function renderedDeclText(decl: Declaration): string {
+  return decl.value.trim() + (decl.important ? " !important" : "");
+}
+
+/**
  * Selector-name lookup first (the common case: compiled and source selector
  * text agree); falls back to position-based lookup ONLY when the name match
  * fails AND a mapped source position is available. Never the other way
@@ -122,14 +140,77 @@ function pickRuleForChange(
   selector: string,
   mediaText: string | undefined,
   position: RulePosition | undefined,
+  disambiguate?: DisambiguateHint,
 ): PickedRule | null {
-  const byName = pickRule(root, selector, mediaText);
+  const byName = pickRule(
+    root,
+    selector,
+    mediaText,
+    disambiguate ? { ...disambiguate, position: disambiguate.position ?? position } : undefined,
+  );
   if (byName) return byName;
   if (!position) return null;
   return pickRuleAtPosition(root, position.line, position.column ?? undefined);
 }
 
-function pickRule(root: Root, selector: string, mediaText: string | undefined): PickedRule | null {
+/**
+ * Among several rules that share selector+media, pick the one DevTools actually
+ * targeted: prefer the rule whose current declaration value equals the reported
+ * `oldValue`; if that doesn't single one out, use the mapped source position;
+ * only fall back to the first when neither disambiguates. Returns null when the
+ * hint is absent or resolves nothing (caller then keeps its own fallback).
+ */
+function disambiguateDuplicate(
+  strict: Rule[],
+  hint: DisambiguateHint,
+): PickedRule | null {
+  const byPosition = (pool: Rule[]): Rule | undefined =>
+    hint.position
+      ? pool.find((r) =>
+          ruleContainsPosition(r, hint.position!.line, hint.position!.column ?? undefined),
+        )
+      : undefined;
+
+  if (hint.oldValue !== undefined) {
+    const want = expectedDeclText(hint.oldValue);
+    const byValue = strict.filter((r) => {
+      const ds = declsOf(r, hint.property);
+      const last = ds[ds.length - 1];
+      return last ? renderedDeclText(last) === want : false;
+    });
+    if (byValue.length === 1) {
+      return {
+        rule: byValue[0]!,
+        note: `matched 1 of ${strict.length} duplicate selectors by its reported value`,
+      };
+    }
+    if (byValue.length > 1) {
+      const atPos = byPosition(byValue);
+      return {
+        rule: atPos ?? byValue[0]!,
+        note: atPos
+          ? `matched 1 of ${strict.length} duplicate selectors by source position`
+          : `matched 1st of ${byValue.length} duplicate selectors sharing the reported value`,
+      };
+    }
+  }
+
+  const atPos = byPosition(strict);
+  if (atPos) {
+    return {
+      rule: atPos,
+      note: `matched 1 of ${strict.length} duplicate selectors by source position`,
+    };
+  }
+  return null;
+}
+
+function pickRule(
+  root: Root,
+  selector: string,
+  mediaText: string | undefined,
+  disambiguate?: DisambiguateHint,
+): PickedRule | null {
   const wanted = normalizeSelector(selector);
   const matches: Rule[] = [];
   root.walkRules((r) => {
@@ -141,10 +222,10 @@ function pickRule(root: Root, selector: string, mediaText: string | undefined): 
   const strict = matches.filter((r) => mediaParamsOf(r) === wantedMedia);
 
   if (strict.length > 0) {
-    const rule = strict[0]!;
-    const note =
-      strict.length > 1 ? `matched 1st of ${strict.length} duplicate selectors` : undefined;
-    return { rule, note };
+    if (strict.length === 1) return { rule: strict[0]!, note: undefined };
+    const disambiguated = disambiguate ? disambiguateDuplicate(strict, disambiguate) : null;
+    if (disambiguated) return disambiguated;
+    return { rule: strict[0]!, note: `matched 1st of ${strict.length} duplicate selectors` };
   }
   // Lenient fallback: same selector in a different media context.
   const rule = matches[0]!;
@@ -367,6 +448,8 @@ export function applyCssChange(
       declCountDelta: number;
       /** Present for modify/add-decl: assert this property's value reads back exactly this text. */
       valueCheck?: { property: string; expectedValue: string };
+      /** Present when the edited rule was one of several duplicate selectors — relocate the SAME one after re-parse, not blindly the first. */
+      disambiguate?: DisambiguateHint;
     };
     /** Present for add-rule: each newly-inserted rule must be relocatable with its own exact declarations, unchanged. */
     insertedRules?: { selector: string; mediaText: string | undefined; sig: string }[];
@@ -392,7 +475,12 @@ export function applyCssChange(
     });
 
     if (check.target) {
-      const picked = pickRule(reparsed, check.target.selector, check.target.mediaText);
+      const picked = pickRule(
+        reparsed,
+        check.target.selector,
+        check.target.mediaText,
+        check.target.disambiguate,
+      );
       if (!picked) {
         throw new SkipChangeError(
           `refusing to write: edited rule "${check.target.selector}" could not be relocated after re-parse (possible structural corruption)`,
@@ -442,7 +530,13 @@ export function applyCssChange(
 
   switch (change.op) {
     case "modify": {
-      const picked = pickRuleForChange(root, change.selector, change.mediaText, options.position);
+      // Disambiguate duplicate selectors by the value DevTools reported the
+      // targeted declaration currently holds, so we rewrite the rule the user
+      // touched — not blindly the first duplicate.
+      const picked = pickRuleForChange(root, change.selector, change.mediaText, options.position, {
+        property: change.property,
+        oldValue: change.oldValue,
+      });
       if (!picked) {
         throw new SkipChangeError(`selector not found in target file: "${change.selector}"`);
       }
@@ -470,6 +564,17 @@ export function applyCssChange(
           declCountBefore,
           declCountDelta: 0,
           valueCheck: { property: change.property, expectedValue: expectedDeclText(change.newValue) },
+          // After the edit the target rule holds newValue; relocate it by that
+          // so the post-reparse check verifies the SAME duplicate we rewrote.
+          // Thread the source position too: when newValue collides with a
+          // same-selector sibling's value, the by-value filter matches both, and
+          // only the position tie-break relocates the exact rule we edited
+          // (otherwise the check can verify — or false-skip against — a sibling).
+          disambiguate: {
+            property: change.property,
+            oldValue: change.newValue,
+            position: options.position,
+          },
         },
       });
       return { css, line: decl.source?.start?.line, note: picked.note };
@@ -527,8 +632,16 @@ export function applyCssChange(
       }
       const ruleCountBefore = countAllRules(root);
       const declCountBefore = countDirectDecls(picked.rule);
-      const removedCount = decls.length;
-      for (const d of decls) d.remove();
+      // Remove ONLY the last occurrence — the cascade winner the caller saw and
+      // unchecked. A property doubled in one rule (e.g. a fallback + override)
+      // must keep its earlier declaration; deleting all of them would silently
+      // drop a value DevTools never touched.
+      const target = decls[decls.length - 1]!;
+      target.remove();
+      const dupNote =
+        decls.length > 1
+          ? `removed only the last of ${decls.length} "${change.property}" declarations (the cascade winner)`
+          : undefined;
       const css = finish(root, {
         ruleCountBefore,
         ruleCountDelta: 0,
@@ -536,10 +649,10 @@ export function applyCssChange(
           selector: targetSelector,
           mediaText: targetMediaText,
           declCountBefore,
-          declCountDelta: -removedCount,
+          declCountDelta: -1,
         },
       });
-      return { css, note: picked.note };
+      return { css, note: joinNotes(picked.note, dupNote) };
     }
 
     case "add-rule": {
