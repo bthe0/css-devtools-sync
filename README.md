@@ -8,6 +8,8 @@
 
 Plain CSS · Sass modules · Emotion/styled css-in-js · Tailwind class lists — synced from the Styles panel to disk through a local apply engine and a DevTools extension.
 
+<img src="./docs/screenshots/demo.gif" alt="Editing CSS in Chrome DevTools and watching it write back to source across every styling tier" width="720" />
+
 <!-- badges -->
 [![CI](https://github.com/bthe0/css-devtools-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/bthe0/css-devtools-sync/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/bthe0/css-devtools-sync/actions/workflows/codeql.yml/badge.svg)](https://github.com/bthe0/css-devtools-sync/actions/workflows/codeql.yml)
@@ -43,11 +45,7 @@ It resolves DevTools → source through two channels:
 
 ## The test app
 
-The fixture app exercises every styling tier in one page — each block maps to a distinct apply strategy (plain CSS, CSS Modules, Sass sourcemap, css-in-js, Tailwind class lists, static markup, image attrs):
-
-<div align="center">
-  <img src="./docs/screenshots/demo.gif" alt="dev-sync test app — editing in DevTools syncs to source across every styling tier" width="720" />
-</div>
+The fixture app exercises every styling tier in one page — each block maps to a distinct apply strategy (plain CSS, CSS Modules, Sass sourcemap, css-in-js, Tailwind class lists, static markup, image attrs). The demo above runs against it.
 
 ## Quick start (drop-in)
 
