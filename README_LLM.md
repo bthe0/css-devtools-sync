@@ -17,6 +17,11 @@ corepack enable && pnpm -v   # expect pnpm 10.x (pinned via packageManager)
 If Node < 20 or pnpm is missing, tell the human and stop — do not silently
 install a different toolchain.
 
+**No AI API key is required.** dev-sync's five apply tiers are fully
+deterministic. `ANTHROPIC_API_KEY` is optional — it only lets Claude break ties
+when a brand-new rule could land in several files, and it is disabled when
+`APP_ENV=production`. Never tell the human they must set it to run the tool.
+
 ## 1. Install + build + verify (run all four; each must pass)
 
 ```sh

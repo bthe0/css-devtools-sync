@@ -23,6 +23,14 @@ Plain CSS · Sass modules · Emotion/styled css-in-js · Tailwind class lists �
 
 > **🤖 Setting this up with an AI agent?** Point it at **[`README_LLM.md`](./README_LLM.md)** — a step-by-step setup runbook written for LLMs (verify toolchain → install/build/test → pick the write-jail root → load the extension). It stops to ask you where to run and before touching your browser.
 
+## Requirements
+
+- **Node ≥ 20** and **pnpm 10** (pinned via `packageManager`).
+- A **Vite** app (Vue, Svelte, Qwik, or React + Vite). Build-owning frameworks (Next.js, Nuxt, Astro, SvelteKit) aren't supported yet.
+- **Chrome** (the DevTools extension is Chromium MV3).
+
+**AI-assisted rule placement is optional.** All five apply tiers are fully deterministic and run with no API key. Setting `ANTHROPIC_API_KEY` only lets Claude break ties when a *brand-new* rule could plausibly land in several source files; without it, dev-sync falls back to a deterministic pick. LLM placement is disabled entirely when `APP_ENV=production`. **Claude is not required to run dev-sync.**
+
 ## What it does
 
 You tweak `border-radius` on a rule in the DevTools **Styles** panel. `dev-sync` figures out which source construct produced that rule — a `.css` file, a compiled `.module.scss`, an Emotion template literal, or a Tailwind utility in a `className` — and writes the edit **back into that source**. Vite HMR reloads, and the change now comes from your code, not a runtime override.
