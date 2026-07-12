@@ -218,6 +218,59 @@ test("switch defaults ON when no pref is stored", () => {
   assert.equal(shadow().querySelector(".sw").getAttribute("aria-checked"), "true");
 });
 
+test("HUD renders at 60% opacity (unobtrusive over the page)", () => {
+  const { shadow } = mount();
+  assert.ok(shadow().querySelector("style").textContent.includes("opacity:.6"));
+});
+
+test("clicking the HUD latches it to full opacity, clicking off drops it back", () => {
+  const { window, shadow } = mount();
+  const frame = shadow().querySelector(".hud");
+  const down = (target) =>
+    target.dispatchEvent(new window.MouseEvent("mousedown", { button: 0, bubbles: true }));
+
+  down(frame);
+  assert.ok(frame.classList.contains("active"), "click on the widget latches full opacity");
+
+  down(window.document.body); // click off the widget
+  assert.ok(!frame.classList.contains("active"), "click elsewhere drops the latch");
+});
+
+test("dragging the settings bar moves the whole widget", () => {
+  const { window, shadow } = mount();
+  const host = window.document.getElementById("dev-sync-hud-host");
+  const bar = shadow().querySelector(".bar");
+  const md = (type, x, y) =>
+    new window.MouseEvent(type, { button: 0, clientX: x, clientY: y, bubbles: true });
+
+  bar.dispatchEvent(md("mousedown", 100, 100));
+  // Anchor flips from right/bottom to left/top on grab.
+  assert.equal(host.style.right, "auto");
+  window.document.dispatchEvent(md("mousemove", 150, 130));
+  // jsdom has no layout (rect = 0), so left/top track the pointer delta clamped
+  // into the viewport: 0 + (150-100) = 50, 0 + (130-100) = 30.
+  assert.equal(host.style.left, "50px");
+  assert.equal(host.style.top, "30px");
+
+  // Drag ends on mouseup; further moves are ignored.
+  window.document.dispatchEvent(md("mouseup", 150, 130));
+  window.document.dispatchEvent(md("mousemove", 400, 400));
+  assert.equal(host.style.left, "50px", "no tracking after mouseup");
+});
+
+test("mousedown on the autosave switch does not start a drag", () => {
+  const { window, shadow } = mount();
+  const host = window.document.getElementById("dev-sync-hud-host");
+  const sw = shadow().querySelector(".sw");
+  sw.dispatchEvent(
+    new window.MouseEvent("mousedown", { button: 0, clientX: 10, clientY: 10, bubbles: true }),
+  );
+  window.document.dispatchEvent(
+    new window.MouseEvent("mousemove", { clientX: 200, clientY: 200, bubbles: true }),
+  );
+  assert.equal(host.style.left, "", "switch clicks stay clicks, never drags");
+});
+
 test("switch is a real role=switch control (keyboard-operable button)", () => {
   const { emit, shadow } = mount();
   emit({ type: "dev-sync:status", state: "green" });

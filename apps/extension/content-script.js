@@ -66,10 +66,16 @@ function buildHud() {
       font:13px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
       color:#e8eaf0; background:#1b1e2b; border:1px solid #2c3145;
       border-radius:10px; box-shadow:0 8px 28px rgba(0,0,0,.4); overflow:hidden;
+      /* Sits at 60% so it stays unobtrusive over the page; full opacity while
+         hovered, dragged, or after a click so it's readable when the user
+         reaches for it (click latches until they click off it). */
+      opacity:.6; transition:opacity .2s ease;
     }
+    .hud:hover, .hud.dragging, .hud.active { opacity:1; }
     .bar {
       display:flex; align-items:center; gap:10px;
       padding:9px 11px; background:#20233340;
+      cursor:move; user-select:none; /* drag handle */
     }
     .badge {
       flex:0 0 auto; width:22px; height:22px; border-radius:50%;
@@ -116,7 +122,7 @@ function buildHud() {
     .line.success .ic { color:#22c55e; }
     .line .msg { word-break:break-word; }
     @media (prefers-reduced-motion: reduce) {
-      .badge,.sw,.sw::after,.line,.status { transition:none; }
+      .badge,.sw,.sw::after,.line,.status,.hud { transition:none; }
       .line { opacity:1; transform:none; }
     }`;
   root.appendChild(style);
@@ -174,8 +180,65 @@ function buildHud() {
   frame.append(feed, bar, statusEl);
   root.appendChild(frame);
 
+  // Drag the whole widget by its settings bar. Position is deliberately NOT
+  // persisted — the content script rebuilds the HUD on every page load, so it
+  // resets to the bottom-right anchor on refresh (as requested).
+  makeDraggable(host, frame, bar, switchEl);
+
+  // Click the widget to latch it to full opacity (readable while you work in it);
+  // a click anywhere off it drops back to the resting 60%.
+  frame.addEventListener("mousedown", () => frame.classList.add("active"));
+  document.addEventListener("mousedown", (e) => {
+    if (!host.contains(e.target)) frame.classList.remove("active");
+  });
+
   hud = { root, badge, feed, switchEl, statusEl };
   return hud;
+}
+
+// Let the user click-drag the HUD anywhere by its `handle`, ignoring drags that
+// start on `ignore` (the autosave switch — those are clicks, not drags). The
+// host is anchored bottom-right via right/bottom; on the first drag we convert
+// to left/top from its current rect so the pointer stays glued to the grab point.
+function makeDraggable(host, frame, handle, ignore) {
+  let startX = 0;
+  let startY = 0;
+  let originLeft = 0;
+  let originTop = 0;
+
+  const onMove = (e) => {
+    const w = frame.offsetWidth;
+    const h = frame.offsetHeight;
+    // Keep the box inside the viewport so it can't be lost off an edge.
+    const left = Math.max(0, Math.min(window.innerWidth - w, originLeft + e.clientX - startX));
+    const top = Math.max(0, Math.min(window.innerHeight - h, originTop + e.clientY - startY));
+    host.style.left = `${left}px`;
+    host.style.top = `${top}px`;
+  };
+
+  const onUp = () => {
+    frame.classList.remove("dragging");
+    document.removeEventListener("mousemove", onMove);
+    document.removeEventListener("mouseup", onUp);
+  };
+
+  handle.addEventListener("mousedown", (e) => {
+    if (e.button !== 0 || (ignore && ignore.contains(e.target))) return;
+    e.preventDefault(); // don't start a text selection while dragging
+    const rect = frame.getBoundingClientRect();
+    // Switch the anchor from right/bottom to left/top at the current position.
+    host.style.right = "auto";
+    host.style.bottom = "auto";
+    host.style.left = `${rect.left}px`;
+    host.style.top = `${rect.top}px`;
+    originLeft = rect.left;
+    originTop = rect.top;
+    startX = e.clientX;
+    startY = e.clientY;
+    frame.classList.add("dragging");
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
 }
 
 function setStatus(state) {
