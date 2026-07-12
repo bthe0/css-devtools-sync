@@ -5,6 +5,9 @@
   "description": "Local deterministic apply engine: receives CapturePayload from the DevTools extension, edits workspace source files, returns ApplyResult",
   "type": "module",
   "main": "./dist/index.js",
+  "bin": {
+    "css-sync": "./dist/cli.js"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
