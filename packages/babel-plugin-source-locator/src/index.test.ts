@@ -1,5 +1,4 @@
 import { transformAsync } from "@babel/core";
-import { DATA_SOURCE_FILE } from "@dev-sync/contract";
 import { describe, expect, it } from "vitest";
 import sourceLocatorBabelPlugin from "./index.js";
 
@@ -42,7 +41,7 @@ describe("source-locator babel plugin", () => {
     const out = await transform(FIXTURE);
 
     // Never pollutes the DOM with data-source-* attributes anymore.
-    expect(out).not.toContain(DATA_SOURCE_FILE);
+    expect(out).not.toContain("data-source-file");
 
     const ref = helperName(out);
     // Runtime import present exactly once.
@@ -105,7 +104,7 @@ describe("source-locator babel plugin", () => {
         plugins: [[sourceLocatorBabelPlugin, { root: "/repo" }]],
       });
       expect(out?.code).not.toContain("__srcLocRef");
-      expect(out?.code).not.toContain(DATA_SOURCE_FILE);
+      expect(out?.code).not.toContain("data-source-file");
     } finally {
       process.env.NODE_ENV = prev;
     }

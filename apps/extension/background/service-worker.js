@@ -26,9 +26,6 @@
 import {
   diffSheet,
   elementContextFromSrcLoc,
-  isSourceLocatorAttribute,
-  buildSetAttrChange,
-  buildRemoveAttrChange,
   buildSetTextChange,
 } from "./diff.js";
 import { summarizeAutosave } from "./summary.js";
@@ -365,58 +362,6 @@ function onChildNodeRemoved(tabId, { nodeId }) {
   // entries are harmless (never resolved again) and bounded by page
   // lifetime, so we don't walk the subtree to prune them.
   session.domNodes.delete(nodeId);
-}
-
-// ---------------------------------------------------------------------------
-// DOM attribute mutations -> set-attr / remove-attr
-// ---------------------------------------------------------------------------
-
-function onAttributeModified(tabId, { nodeId, name, value }) {
-  if (isSourceLocatorAttribute(name)) return; // framework/devtools churn
-  const session = sessions.get(tabId);
-  if (!session) return;
-  const key = `${nodeId}\0${name}`;
-  clearTimeout(session.attrDebounce.get(key));
-  session.attrDebounce.set(
-    key,
-    setTimeout(() => {
-      session.attrDebounce.delete(key);
-      void emitAttributeChange(tabId, nodeId, name, value, false);
-    }, DIFF_DEBOUNCE_MS)
-  );
-}
-
-function onAttributeRemoved(tabId, { nodeId, name }) {
-  if (isSourceLocatorAttribute(name)) return; // framework/devtools churn
-  const session = sessions.get(tabId);
-  if (!session) return;
-  const key = `${nodeId}\0${name}`;
-  clearTimeout(session.attrDebounce.get(key));
-  session.attrDebounce.set(
-    key,
-    setTimeout(() => {
-      session.attrDebounce.delete(key);
-      void emitAttributeChange(tabId, nodeId, name, undefined, true);
-    }, DIFF_DEBOUNCE_MS)
-  );
-}
-
-async function emitAttributeChange(tabId, nodeId, name, value, removed) {
-  const session = sessions.get(tabId);
-  if (!session) return;
-
-  let context;
-  try {
-    context = await resolveElementContext(tabId, nodeId);
-  } catch (err) {
-    postError(tabId, "getAttributes", err);
-    return;
-  }
-
-  emitDiffResult(
-    tabId,
-    removed ? buildRemoveAttrChange(context, name) : buildSetAttrChange(context, name, value)
-  );
 }
 
 // ---------------------------------------------------------------------------

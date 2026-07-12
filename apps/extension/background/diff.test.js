@@ -9,10 +9,8 @@ import assert from "node:assert/strict";
 import {
   diffSheet,
   parseStylesheet,
-  elementContextFromAttributes,
   elementContextFromSrcLoc,
   hasSourceLocation,
-  isSourceLocatorAttribute,
   buildSetAttrChange,
   buildRemoveAttrChange,
   buildSetTextChange,
@@ -23,9 +21,6 @@ import {
   renderProducingParts,
   reconstructRawSegment,
   resolveTextSegmentEdit,
-  DATA_SOURCE_FILE,
-  DATA_SOURCE_LINE,
-  DATA_SOURCE_COMPONENT,
 } from "./diff.js";
 
 const SHEET_REF = { id: "sheet-1", sourceURL: "http://localhost/app.css", origin: "regular" };
@@ -176,36 +171,14 @@ test("parseStylesheet: flattens nested rules with mediaText, ignores comments/@i
 // DOM: set-attr
 // ---------------------------------------------------------------------------
 
-const INSTRUMENTED_ATTRS = [
-  "class",
-  "card active",
-  DATA_SOURCE_FILE,
-  "src/components/Card.jsx",
-  DATA_SOURCE_LINE,
-  "42",
-  DATA_SOURCE_COMPONENT,
-  "Card",
-];
-
-test("elementContextFromAttributes: parses class list + data-source-* attrs", () => {
-  const ctx = elementContextFromAttributes("DIV", INSTRUMENTED_ATTRS);
-  assert.deepEqual(ctx, {
-    tagName: "div",
-    classList: ["card", "active"],
-    dataSourceFile: "src/components/Card.jsx",
-    dataSourceLine: 42,
-    dataSourceComponent: "Card",
-  });
-});
-
-test("elementContextFromAttributes: element with no data-source-* attrs", () => {
-  const ctx = elementContextFromAttributes("SPAN", ["class", "icon"]);
-  assert.deepEqual(ctx, { tagName: "span", classList: ["icon"] });
-  assert.equal(hasSourceLocation(ctx), false);
-});
+const INSTRUMENTED_SRCLOC = {
+  dataSourceFile: "src/components/Card.jsx",
+  dataSourceLine: 42,
+  dataSourceComponent: "Card",
+};
 
 test("buildSetAttrChange: instrumented element -> set-attr CaptureChange", () => {
-  const ctx = elementContextFromAttributes("DIV", INSTRUMENTED_ATTRS);
+  const ctx = elementContextFromSrcLoc("DIV", ["card", "active"], INSTRUMENTED_SRCLOC);
   const result = buildSetAttrChange(ctx, "aria-label", "Close dialog");
 
   assert.equal(result.ok, true);
@@ -222,7 +195,7 @@ test("buildSetAttrChange: instrumented element -> set-attr CaptureChange", () =>
 // ---------------------------------------------------------------------------
 
 test("buildRemoveAttrChange: instrumented element -> remove-attr CaptureChange", () => {
-  const ctx = elementContextFromAttributes("DIV", INSTRUMENTED_ATTRS);
+  const ctx = elementContextFromSrcLoc("DIV", ["card", "active"], INSTRUMENTED_SRCLOC);
   const result = buildRemoveAttrChange(ctx, "aria-hidden");
 
   assert.equal(result.ok, true);
@@ -238,7 +211,7 @@ test("buildRemoveAttrChange: instrumented element -> remove-attr CaptureChange",
 // ---------------------------------------------------------------------------
 
 test("buildSetTextChange: instrumented element -> set-text CaptureChange with oldText", () => {
-  const ctx = elementContextFromAttributes("SPAN", INSTRUMENTED_ATTRS);
+  const ctx = elementContextFromSrcLoc("SPAN", ["card", "active"], INSTRUMENTED_SRCLOC);
   const result = buildSetTextChange(ctx, "New label", "Old label");
 
   assert.equal(result.ok, true);
@@ -251,7 +224,7 @@ test("buildSetTextChange: instrumented element -> set-text CaptureChange with ol
 });
 
 test("buildSetTextChange: omits oldText when not provided (unknown prior value)", () => {
-  const ctx = elementContextFromAttributes("SPAN", INSTRUMENTED_ATTRS);
+  const ctx = elementContextFromSrcLoc("SPAN", ["card", "active"], INSTRUMENTED_SRCLOC);
   const result = buildSetTextChange(ctx, "New label", undefined);
 
   assert.equal(result.ok, true);
@@ -259,22 +232,22 @@ test("buildSetTextChange: omits oldText when not provided (unknown prior value)"
 });
 
 // ---------------------------------------------------------------------------
-// DOM: no-data-source skip (covers set-attr, remove-attr, set-text)
+// DOM: no-source-location skip (covers set-attr, remove-attr, set-text)
 // ---------------------------------------------------------------------------
 
-test("buildSetAttrChange: element with no data-source-file is skipped, not silently dropped", () => {
-  const ctx = elementContextFromAttributes("DIV", ["class", "card"]);
+test("buildSetAttrChange: element with no dataSourceFile is skipped, not silently dropped", () => {
+  const ctx = elementContextFromSrcLoc("DIV", ["card"], null);
   const result = buildSetAttrChange(ctx, "aria-label", "Close");
 
   assert.equal(result.ok, false);
   assert.match(result.reason, /set-attr/);
-  assert.match(result.reason, new RegExp(DATA_SOURCE_FILE));
+  assert.match(result.reason, /data-source-file/);
   assert.match(result.reason, /not instrumented/);
 });
 
-test("buildRemoveAttrChange: element with no data-source-line is skipped", () => {
+test("buildRemoveAttrChange: element with no dataSourceLine is skipped", () => {
   // dataSourceFile present but no dataSourceLine -> still not locatable.
-  const ctx = elementContextFromAttributes("DIV", ["class", "card", DATA_SOURCE_FILE, "x.jsx"]);
+  const ctx = elementContextFromSrcLoc("DIV", ["card"], { dataSourceFile: "x.jsx" });
   const result = buildRemoveAttrChange(ctx, "disabled");
 
   assert.equal(result.ok, false);
@@ -282,7 +255,7 @@ test("buildRemoveAttrChange: element with no data-source-line is skipped", () =>
 });
 
 test("buildSetTextChange: uninstrumented element is skipped", () => {
-  const ctx = elementContextFromAttributes("SPAN", []);
+  const ctx = elementContextFromSrcLoc("SPAN", [], null);
   const result = buildSetTextChange(ctx, "hi", "bye");
 
   assert.equal(result.ok, false);
@@ -335,21 +308,6 @@ test("hasSourceLocation: rejects zero/negative/non-integer line numbers", () => 
   assert.equal(hasSourceLocation({ dataSourceFile: "a.jsx", dataSourceLine: 1.5 }), false);
   assert.equal(hasSourceLocation({ dataSourceFile: "", dataSourceLine: 10 }), false);
   assert.equal(hasSourceLocation({ dataSourceFile: "a.jsx", dataSourceLine: 10 }), true);
-});
-
-// ---------------------------------------------------------------------------
-// isSourceLocatorAttribute — framework/devtools churn guard
-// ---------------------------------------------------------------------------
-
-test("isSourceLocatorAttribute: true for instrumentation attrs AND the selection marker", () => {
-  assert.equal(isSourceLocatorAttribute(DATA_SOURCE_FILE), true);
-  assert.equal(isSourceLocatorAttribute(DATA_SOURCE_LINE), true);
-  assert.equal(isSourceLocatorAttribute(DATA_SOURCE_COMPONENT), true);
-  // The transient selection marker must be ignored too — otherwise selecting
-  // an element in the Elements panel churns a bogus set-attr/remove-attr.
-  assert.equal(isSourceLocatorAttribute("data-dev-sync-inspected"), true);
-  assert.equal(isSourceLocatorAttribute("class"), false);
-  assert.equal(isSourceLocatorAttribute("aria-label"), false);
 });
 
 // ---------------------------------------------------------------------------

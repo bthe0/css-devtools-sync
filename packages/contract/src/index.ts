@@ -8,15 +8,6 @@
 import { z } from "zod";
 
 // ---------------------------------------------------------------------------
-// Instrumentation attribute names
-// (babel plugin writes these onto JSX elements; extension reads them back)
-// ---------------------------------------------------------------------------
-
-export const DATA_SOURCE_FILE = "`__srcLoc` source file" as const;
-export const DATA_SOURCE_LINE = "`__srcLoc` source line" as const;
-export const DATA_SOURCE_COMPONENT = "data-source-component" as const;
-
-// ---------------------------------------------------------------------------
 // Workspace package names (so downstream agents reference them consistently)
 // ---------------------------------------------------------------------------
 
@@ -65,9 +56,9 @@ export type SourceRange = z.infer<typeof SourceRangeSchema>;
 
 /**
  * Context about the element that was selected in Elements when the edit was
- * made. The __srcLoc source location fields come from the babel instrumentation plugin
- * (see DATA_SOURCE_* constants) and let the server map the change straight to
- * a source file even without a sourcemap.
+ * made. The `__srcLoc` source location fields come from the babel
+ * instrumentation plugin and let the server map the change straight to a
+ * source file even without a sourcemap.
  */
 export const ElementContextSchema = z.object({
   tagName: z.string().min(1),
