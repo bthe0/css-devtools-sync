@@ -20,7 +20,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@css-sync/babel-plugin-source-locator": "workspace:*"
+    "@css-sync/babel-plugin-source-locator": "workspace:*",
+    "@css-sync/server": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

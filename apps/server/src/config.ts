@@ -55,6 +55,27 @@ export interface Config {
   readonly journalDir?: string;
 }
 
+/**
+ * Build a Config for an in-process (embedded) apply engine, e.g. when a bundler
+ * plugin mounts the middleware on its own dev server rather than running the
+ * standalone Fastify server. No environment is read: the workspace root is the
+ * bundler's project root, everything else takes a dev-safe default. `port` is
+ * unused in embedded mode (the middleware rides the dev server's own socket).
+ */
+export function configFromRoot(root: string, overrides: Partial<Config> = {}): Config {
+  const resolved = fs.realpathSync(path.resolve(root));
+  return {
+    workspaceRoot: resolved,
+    port: overrides.port ?? 0,
+    appEnv: overrides.appEnv ?? "development",
+    anthropicApiKey: overrides.anthropicApiKey,
+    extensionId: overrides.extensionId,
+    syncToken: overrides.syncToken,
+    overridesFile: overrides.overridesFile ?? "src/index.css",
+    journalDir: overrides.journalDir,
+  };
+}
+
 /** Read + validate configuration from the environment. Throws (fail fast) on any problem. */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const parsed = EnvSchema.safeParse(env);

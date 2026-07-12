@@ -5,6 +5,16 @@
   "description": "Local deterministic apply engine: receives CapturePayload from the DevTools extension, edits workspace source files, returns ApplyResult",
   "type": "module",
   "main": "./dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./engine": {
+      "types": "./dist/engine.d.ts",
+      "import": "./dist/engine.js"
+    }
+  },
   "bin": {
     "css-sync": "./dist/cli.js"
   },
