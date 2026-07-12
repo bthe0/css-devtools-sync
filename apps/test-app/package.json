@@ -21,6 +21,7 @@
   "devDependencies": {
     "@dev-sync/babel-plugin-source-locator": "workspace:*",
     "@dev-sync/contract": "workspace:*",
+    "@dev-sync/vite": "workspace:*",
     "@emotion/babel-plugin": "^11.13.5",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",

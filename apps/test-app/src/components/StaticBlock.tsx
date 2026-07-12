@@ -3,7 +3,7 @@
  * Mostly-static markup with inline `style` props, literal text children, and
  * a literal `aria-label` attribute. Editing element.style, the aria-label
  * attribute, or the heading/body text in the Elements panel should sync back
- * into this JSX — resolved via the data-source-* attributes stamped by the
+ * into this JSX — resolved via the __srcLoc source location stamped by the
  * source-locator babel plugin (Tier 3 instrumentation), since there is no
  * stylesheet or CSS-in-JS template to fall back on for this tier.
  */

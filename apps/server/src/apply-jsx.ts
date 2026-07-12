@@ -67,7 +67,7 @@ interface FoundElement {
 }
 
 // ---------------------------------------------------------------------------
-// Locating the element by data-source-line
+// Locating the element by `__srcLoc` source line
 // ---------------------------------------------------------------------------
 
 function collectJsxElements(ast: recast.types.ASTNode): FoundElement[] {
@@ -86,7 +86,7 @@ function collectJsxElements(ast: recast.types.ASTNode): FoundElement[] {
 /**
  * Locate the element instrumented at `targetLine`. Two passes:
  *  1. Exact match: the opening tag starts on targetLine, OR the element
- *     carries a literal data-source-line="targetLine" attribute (belt and
+ *     carries a literal `__srcLoc` source line="targetLine" attribute (belt and
  *     braces — mirrors classlist.ts's editJsxClass matching).
  *  2. Nearest enclosing: the smallest element whose full range contains
  *     targetLine (covers reformatted/multi-line opening tags).
@@ -99,7 +99,7 @@ function locateElement(elements: FoundElement[], targetLine: number): FoundEleme
     return attrs.some(
       (a) =>
         a.type === "JSXAttribute" &&
-        a.name?.name === "data-source-line" &&
+        a.name?.name === "`__srcLoc` source line" &&
         a.value?.type === "StringLiteral" &&
         Number(a.value.value) === targetLine,
     );
@@ -469,8 +469,8 @@ export interface JsxTemplateDescription {
 }
 
 /**
- * Parse the instrumented source file, locate the element at its data-source
- * line, and enumerate its children into ordered static/dynamic/element parts.
+ * Parse the instrumented source file, locate the element at its `__srcLoc`
+ * source line, and enumerate its children into ordered static/dynamic/element parts.
  * Read-only — never writes. Throws SkipChangeError (unlocatable/unparseable) or
  * WorkspaceError (path escapes the jail).
  */

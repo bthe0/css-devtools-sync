@@ -1,14 +1,14 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import { sourceLocator } from "@dev-sync/babel-plugin-source-locator/vite";
+import { devSync } from "@dev-sync/vite";
 
 export default defineConfig({
   plugins: [
-    // Source-locator (Tier 3): stamps JSX host elements with
-    // data-source-file / data-source-line / data-source-component so the
-    // extension can map DOM edits back to source without a sourcemap.
-    // Runs `enforce: "pre"`, dev-serve only; composes with plugin-react below.
-    sourceLocator(),
+    // Drop-in integration (the same public API the README tells users to add):
+    // turns on the CSS dev sourcemap, mounts the apply engine on this dev
+    // server's own origin at `/__dev-sync/*`, and stamps JSX host elements with
+    // their off-DOM `__srcLoc` source location. All dev-serve only.
+    devSync(),
     react({
       jsxImportSource: "@emotion/react",
       babel: {
@@ -41,11 +41,6 @@ export default defineConfig({
       },
     }),
   ],
-  css: {
-    // Dev sourcemaps for Sass modules — the sync server's sourcemap tier
-    // needs these to map compiled CSS back to ScssPanel.module.scss.
-    devSourcemap: true,
-  },
   server: {
     port: 5199,
     strictPort: true,

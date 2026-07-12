@@ -86,6 +86,9 @@ importers:
       '@dev-sync/contract':
         specifier: workspace:*
         version: link:../../packages/contract
+      '@dev-sync/vite':
+        specifier: workspace:*
+        version: link:../../packages/vite
       '@emotion/babel-plugin':
         specifier: ^11.13.5
         version: 11.13.5

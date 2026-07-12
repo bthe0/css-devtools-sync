@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react";
 import { sourceLocator } from "@dev-sync/babel-plugin-source-locator/vite";
 
 // Mirrors vite.config.ts: the source-locator plugin must run in the test
-// transform pipeline too, so the render test can assert data-source-*
+// transform pipeline too, so the render test can assert __srcLoc source location
 // attributes actually land on host elements the same way dev-serve does.
 export default defineConfig({
   plugins: [

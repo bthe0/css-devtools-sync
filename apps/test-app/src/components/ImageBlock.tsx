@@ -4,7 +4,7 @@
  * already exist: editing the width/height ATTRIBUTES in the Elements panel maps
  * to `set-attr` on this <img>; editing the inline `style` width/height maps to
  * `set-attr` on the style prop; editing a CSS width rule flows through the CSS
- * tiers. Both images below are located via the data-source-* attributes the
+ * tiers. Both images below are located via the __srcLoc source location the
  * source-locator babel plugin stamps at build time.
  */
 const SWATCH =

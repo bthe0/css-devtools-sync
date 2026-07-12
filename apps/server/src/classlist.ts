@@ -248,7 +248,7 @@ function editJsxClass(
         attrs.some(
           (a) =>
             a.type === "JSXAttribute" &&
-            a.name?.name === "data-source-line" &&
+            a.name?.name === "`__srcLoc` source line" &&
             a.value?.type === "StringLiteral" &&
             Number(a.value.value) === targetLine,
         );
@@ -321,12 +321,8 @@ function editHtmlClass(
 ): { code: string; note?: string | undefined } {
   const lines = code.split("\n");
   const targetLine = element.dataSourceLine;
-  let idx = targetLine !== undefined ? targetLine - 1 : -1;
+  const idx = targetLine !== undefined ? targetLine - 1 : -1;
   if (idx < 0 || idx >= lines.length || !/<[a-zA-Z]/.test(lines[idx] ?? "")) {
-    // fall back to the data-source-line attribute stamped by the instrumenter
-    idx = lines.findIndex((l) => l.includes(`data-source-line="${String(targetLine)}"`));
-  }
-  if (idx < 0) {
     throw new SkipChangeError(
       `no HTML element found at ${element.dataSourceFile ?? "?"}:${String(targetLine)}`,
     );
@@ -398,7 +394,7 @@ export function computeElementClassEdit(
 ): ElementClassEdit {
   if (!element?.dataSourceFile || element.dataSourceLine === undefined) {
     throw new SkipChangeError(
-      "classlist change requires an instrumented element (data-source-file + data-source-line)",
+      "classlist change requires an instrumented element (`__srcLoc` source file + `__srcLoc` source line)",
     );
   }
 
@@ -438,7 +434,7 @@ export function computeClassListChange(
 
 /**
  * Tailwind mode: never edit generated CSS — edit the element's className in
- * its JSX/HTML source, located via data-source-file / data-source-line.
+ * its JSX/HTML source, located via `__srcLoc` source file / line.
  */
 export function applyClassListChange(
   workspaceRoot: string,

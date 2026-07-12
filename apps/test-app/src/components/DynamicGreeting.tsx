@@ -5,7 +5,7 @@
  * endpoint enumerates its children into editable static runs vs read-only
  * dynamic holes, and `set-text-segment` edits ONE static run by index (via a
  * surgical source-range splice, preserving every other byte) while leaving
- * every {expression} untouched — resolved via the data-source-* attributes the
+ * every {expression} untouched — resolved via the __srcLoc source location the
  * source-locator babel plugin stamps at build time.
  */
 export function DynamicGreeting({ name, count }: { name: string; count: number }) {

@@ -12,8 +12,8 @@ import { z } from "zod";
 // (babel plugin writes these onto JSX elements; extension reads them back)
 // ---------------------------------------------------------------------------
 
-export const DATA_SOURCE_FILE = "data-source-file" as const;
-export const DATA_SOURCE_LINE = "data-source-line" as const;
+export const DATA_SOURCE_FILE = "`__srcLoc` source file" as const;
+export const DATA_SOURCE_LINE = "`__srcLoc` source line" as const;
 export const DATA_SOURCE_COMPONENT = "data-source-component" as const;
 
 // ---------------------------------------------------------------------------
@@ -65,18 +65,18 @@ export type SourceRange = z.infer<typeof SourceRangeSchema>;
 
 /**
  * Context about the element that was selected in Elements when the edit was
- * made. The data-source-* fields come from the babel instrumentation plugin
+ * made. The __srcLoc source location fields come from the babel instrumentation plugin
  * (see DATA_SOURCE_* constants) and let the server map the change straight to
  * a source file even without a sourcemap.
  */
 export const ElementContextSchema = z.object({
   tagName: z.string().min(1),
   classList: z.array(z.string()),
-  /** Value of data-source-file, if instrumented. */
+  /** 1-based source file from `__srcLoc`, if instrumented. */
   dataSourceFile: z.string().optional(),
-  /** Value of data-source-line, if instrumented. */
+  /** 1-based source line from `__srcLoc`, if instrumented. */
   dataSourceLine: z.number().int().positive().optional(),
-  /** Value of data-source-component, if instrumented. */
+  /** Enclosing component name from `__srcLoc`, if instrumented. */
   dataSourceComponent: z.string().optional(),
 });
 export type ElementContext = z.infer<typeof ElementContextSchema>;
@@ -314,7 +314,7 @@ export const ApplyModeSchema = z.enum([
   "postcss",
   /** Located through the stylesheet's sourcemap. */
   "sourcemap",
-  /** Resolved via the element's classList / data-source-* attributes. */
+  /** Resolved via the element's classList / __srcLoc source location. */
   "classlist",
   /** Edited a css-in-js template/object in a JS/TS source file. */
   "cssinjs",
@@ -503,7 +503,7 @@ export type TemplatePart = z.infer<typeof TemplatePartSchema>;
 export const TemplateResponseSchema = z.object({
   /** Workspace-relative path of the located source file. */
   file: z.string().min(1),
-  /** 1-based data-source-line the element was located at. */
+  /** 1-based `__srcLoc` source line the element was located at. */
   line: z.number().int().positive(),
   /** Tag name of the located element. */
   tag: z.string().min(1),
