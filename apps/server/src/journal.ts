@@ -6,6 +6,7 @@ import type { FastifyBaseLogger } from "fastify";
 import {
   JournalEntrySchema,
   type JournalEntry,
+  type RedoResult,
   type UndoRequest,
   type UndoResult,
   type UndoSkip,
@@ -194,29 +195,67 @@ export async function undo(
     if (!target) return { reverted, skipped }; // empty journal — nothing to undo
   }
 
+  const outcome = await revertEntry(cfg, target, "undo", log);
+  if (outcome.skip) skipped.push(outcome.skip);
+  else reverted.push(target);
+  return { reverted, skipped };
+}
+
+/**
+ * Re-apply the change the most-recent undo reverted (Cmd/Ctrl+Shift+Z). Only
+ * valid when the newest journal entry is an `undo` — reverting THAT entry writes
+ * the original edit back. Any other newest entry (a fresh sync, or an already-
+ * consumed redo) means there is nothing to redo. Like undo, refuses to clobber a
+ * hand-edit and journals itself (as `redo`) so the log stays a true history.
+ */
+export async function redo(
+  cfg: JournalConfig,
+  log?: FastifyBaseLogger,
+): Promise<RedoResult> {
+  const redone: JournalEntry[] = [];
+  const skipped: UndoSkip[] = [];
+
+  const [target] = await readJournal(cfg, 1, log);
+  if (!target) return { redone, skipped }; // empty journal — nothing to redo
+  if (target.kind !== "undo") return { redone, skipped }; // last action wasn't an undo
+
+  const outcome = await revertEntry(cfg, target, "redo", log);
+  if (outcome.skip) skipped.push(outcome.skip);
+  else redone.push(target);
+  return { redone, skipped };
+}
+
+/**
+ * Revert one journal entry: refuse if the file drifted from `entry.after`
+ * (hand-edit) or is unreadable, else restore `entry.before` and journal the
+ * revert as its own swapped entry tagged `appendKind` (so it too is (un/re)doable
+ * and the log never lies about what hit disk).
+ */
+async function revertEntry(
+  cfg: JournalConfig,
+  target: JournalEntry,
+  appendKind: "undo" | "redo",
+  log?: FastifyBaseLogger,
+): Promise<{ skip?: UndoSkip }> {
   let current: string;
   try {
     current = readWorkspaceFile(cfg.workspaceRoot, target.file);
   } catch (err) {
-    log?.warn({ err, file: target.file }, "undo target file unreadable");
-    skipped.push({ id: target.id, file: target.file, reason: "file missing or unreadable" });
-    return { reverted, skipped };
+    log?.warn({ err, file: target.file }, `${appendKind} target file unreadable`);
+    return { skip: { id: target.id, file: target.file, reason: "file missing or unreadable" } };
   }
 
   if (current !== target.after) {
-    skipped.push({
-      id: target.id,
-      file: target.file,
-      reason: "file changed since sync (hand-edit detected), refusing to clobber",
-    });
-    return { reverted, skipped };
+    return {
+      skip: {
+        id: target.id,
+        file: target.file,
+        reason: "file changed since sync (hand-edit detected), refusing to clobber",
+      },
+    };
   }
 
   writeWorkspaceFile(cfg.workspaceRoot, target.file, target.before);
-  reverted.push(target);
-
-  // The undo is itself a write — journal it (swapped before/after) so it can
-  // be undone too and the log never lies about what happened on disk.
   await appendJournal(
     cfg,
     {
@@ -225,9 +264,9 @@ export async function undo(
       confidence: target.confidence,
       before: target.after,
       after: target.before,
+      kind: appendKind,
     },
     log,
   );
-
-  return { reverted, skipped };
+  return {};
 }

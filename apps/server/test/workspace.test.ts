@@ -95,6 +95,20 @@ describe("sourceURLToRelativePath / resolveExistingFile", () => {
 
   it("handles webpack:// scheme prefixes", () => {
     expect(sourceURLToRelativePath("webpack:///./styles/app.css")).toBe("styles/app.css");
+    // 3-slash form with a REAL leading dir (Next's map sources look like this):
+    // the dir must survive so app/globals.css resolves — regression for the old
+    // `[^/]*\/` strip that collapsed it to just "globals.css".
+    expect(sourceURLToRelativePath("webpack:///app/globals.css")).toBe("app/globals.css");
+    // 2-slash namespace form: the namespace stays as a leading segment for
+    // resolveExistingFile's progressive strip to peel off.
+    expect(sourceURLToRelativePath("webpack://_N_E_/src/App.css")).toBe("_N_E_/src/App.css");
+  });
+
+  it("resolves a 3-slash webpack:/// map source with a real leading dir", () => {
+    // Next's inline CSS map sources are `webpack:///<dir>/<file>` — the leading
+    // dir must survive the scheme strip so the nested file resolves on disk.
+    const abs = resolveExistingFile(root, "webpack:///styles/app.css");
+    expect(abs).toBe(path.join(realRoot, "styles", "app.css"));
   });
 
   it("returns null for inline/constructed sheets", () => {

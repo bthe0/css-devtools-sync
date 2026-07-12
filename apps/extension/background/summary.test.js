@@ -3,7 +3,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { baseName, summarizeAutosave } from "./summary.js";
+import { baseName, summarizeAutosave, isDynamicMarkupSkip, partitionSkips } from "./summary.js";
 
 test("baseName strips directories (posix + win) and handles edge inputs", () => {
   assert.equal(baseName("src/components/PlainCard.css"), "PlainCard.css");
@@ -53,4 +53,64 @@ test("nothing applied, nothing skipped -> generic warn", () => {
   const { text, kind } = summarizeAutosave([], 0);
   assert.equal(text, "Nothing to autosave");
   assert.equal(kind, "warn");
+});
+
+// A skip on a dynamic/mixed instrumented element is expected, not a failure:
+// the poller auto-emits it, the engine declines the expression, devtools.js
+// suppresses it. It must not latch amber or inflate the "N skipped" count.
+const dynSkip = (op, dataSourceFile = "app/page.tsx", extra = {}) => ({
+  change: { op, element: { dataSourceFile, dataSourceLine: 42 }, ...extra },
+  reason: "dynamic JSX child — cannot rewrite an expression as a literal",
+});
+
+test("isDynamicMarkupSkip: set-text/attr on an instrumented element are expected", () => {
+  assert.equal(isDynamicMarkupSkip(dynSkip("set-text")), true);
+  assert.equal(isDynamicMarkupSkip(dynSkip("set-text-segment")), true);
+  assert.equal(isDynamicMarkupSkip(dynSkip("set-attr", "x.tsx", { attribute: "title" })), true);
+  assert.equal(isDynamicMarkupSkip(dynSkip("remove-attr", "x.tsx", { attribute: "title" })), true);
+});
+
+test("isDynamicMarkupSkip: CSS + placement + uninstrumented skips stay actionable", () => {
+  // Plain-CSS resolve failure — op isn't a markup op.
+  assert.equal(
+    isDynamicMarkupSkip({ change: { op: "modify", styleSheet: { id: "s" } }, reason: "source not found" }),
+    false,
+  );
+  assert.equal(isDynamicMarkupSkip({ change: { op: "add-rule" } }), false);
+  // A markup op with no instrumented source (no dataSourceFile) can't be suppressed → surface it.
+  assert.equal(isDynamicMarkupSkip({ change: { op: "set-text", element: {} } }), false);
+  assert.equal(isDynamicMarkupSkip({ change: { op: "set-text", element: { dataSourceFile: "" } } }), false);
+  // Defensive: malformed items never throw, never count as expected.
+  assert.equal(isDynamicMarkupSkip(null), false);
+  assert.equal(isDynamicMarkupSkip({}), false);
+  assert.equal(isDynamicMarkupSkip({ change: null }), false);
+  assert.equal(isDynamicMarkupSkip({ change: { op: 7, element: { dataSourceFile: "x" } } }), false);
+});
+
+test("partitionSkips separates expected dynamic skips from actionable ones", () => {
+  const skipped = [
+    dynSkip("set-text"), // expected
+    { change: { op: "modify", styleSheet: { id: "s" } }, reason: "source file not found" }, // actionable
+    dynSkip("set-attr", "y.tsx", { attribute: "aria-label" }), // expected
+    { change: { op: "modify" }, reason: "file changed since sync (hand-edit detected)" }, // actionable
+  ];
+  const { dynamic, actionable } = partitionSkips(skipped);
+  assert.equal(dynamic.length, 2);
+  assert.equal(actionable.length, 2);
+  assert.equal(actionable[0].reason, "source file not found");
+});
+
+test("partitionSkips tolerates non-arrays -> empty split", () => {
+  assert.deepEqual(partitionSkips(undefined), { dynamic: [], actionable: [] });
+  assert.deepEqual(partitionSkips(null), { dynamic: [], actionable: [] });
+});
+
+test("a legit edit alongside one dynamic-element skip reports clean (0 actionable)", () => {
+  // Regression: user edits a title (applied) while the poller emits the demo's
+  // dynamic `<p>Region {{…}}</p>` (skipped). The toast must NOT say "1 skipped".
+  const skipped = [dynSkip("set-text")];
+  const { actionable } = partitionSkips(skipped);
+  const { text, kind } = summarizeAutosave([{ file: "app/page.tsx" }], actionable.length);
+  assert.equal(text, "Autosaved 1 change → page.tsx");
+  assert.equal(kind, "success");
 });

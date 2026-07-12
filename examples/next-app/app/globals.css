@@ -1,0 +1,93 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* --- dev-sync demo (plain CSS tier) --- */
+.page {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 48px 24px;
+}
+
+.page__title {
+  font-size: 28px;
+  margin: 0 0 4px;
+}
+
+.page__subtitle {
+  color: #9aa1b3;
+  margin: 0 0 32px;
+}
+
+.tier {
+  margin-bottom: 32px;
+}
+
+.tier__heading {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #4ade80;
+  margin: 0 0 12px;
+}
+
+.plain-card {
+  background: #1b1e2b;
+  border: 1px solid #2c3145;
+  border-radius: 12px;
+  padding: 20px 22px;
+  max-width: 420px;
+}
+
+.plain-card__title {
+  margin: 0 0 6px;
+  font-size: 18px;
+}
+
+.plain-card__body {
+  margin: 0 0 14px;
+  color: #c3c8d6;
+}
+
+/* Dynamic (expression-derived) text — {{ }} marks it as non-editable by set-text. */
+.dyn {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+  color: #f0b429;
+  background: rgba(240, 180, 41, 0.1);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+.plain-card__badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #6366f1;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+}

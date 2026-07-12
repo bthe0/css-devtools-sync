@@ -7,7 +7,8 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm --filter \"./packages/*\" build && pnpm -r typecheck",
     "dev": "pnpm --filter @dev-sync/server dev",
-    "test": "pnpm -r test"
+    "test": "pnpm -r --filter=!@dev-sync/e2e test",
+    "test:e2e": "pnpm --filter @dev-sync/e2e test"
   },
   "packageManager": "pnpm@10.12.1",
   "engines": {

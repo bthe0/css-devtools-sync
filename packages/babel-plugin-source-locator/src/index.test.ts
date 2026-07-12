@@ -92,6 +92,32 @@ describe("source-locator babel plugin", () => {
     expect(out).toContain(`${ref}("src/components/Card.tsx", 1, null)`);
   });
 
+  describe("requireUseClientDirective (Next.js RSC safety)", () => {
+    // Under Next's App Router the default is a Server Component, where a `ref`
+    // is illegal — stamping one throws at render. With this option on, only
+    // modules carrying the "use client" directive get stamped.
+    it("skips a module with no 'use client' directive", async () => {
+      const out = await transform(FIXTURE, { requireUseClientDirective: true });
+      expect(out).not.toContain("__srcLocRef");
+      expect(out).not.toContain("ref=");
+    });
+
+    it("stamps a module that opens with 'use client'", async () => {
+      const out = await transform(`"use client";\n${FIXTURE}`, {
+        requireUseClientDirective: true,
+      });
+      const ref = helperName(out);
+      // <div> is now on line 5 (directive + blank + fixture's own leading blank).
+      expect(out).toContain(`${ref}(`);
+      expect(out).toContain(`"use client"`);
+    });
+
+    it("stamps everything by default (Vite has no directives)", async () => {
+      const out = await transform(FIXTURE); // option off
+      expect(out).toContain("__srcLocRef");
+    });
+  });
+
   it("is a no-op when NODE_ENV is production", async () => {
     const prev = process.env.NODE_ENV;
     process.env.NODE_ENV = "production";

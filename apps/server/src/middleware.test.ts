@@ -171,4 +171,17 @@ describe("createApplyMiddleware", () => {
     expect(res.statusCode).toBe(200);
     expect(json).toMatchObject({ reverted: [], skipped: [] });
   });
+
+  it("redoes against an empty journal without error", async () => {
+    const journalDir = fs.mkdtempSync(path.join(os.tmpdir(), "dev-sync-journal-"));
+    const jcfg = configFromRoot(os.tmpdir(), { journalDir });
+    const { res, json } = await invoke(jcfg, { url: "/redo", body: {} });
+    expect(res.statusCode).toBe(200);
+    expect(json).toMatchObject({ redone: [], skipped: [] });
+  });
+
+  it("rejects GET /redo (wrong method) with 405", async () => {
+    const { res } = await invoke(cfg, { method: "GET", url: "/redo" });
+    expect(res.statusCode).toBe(405);
+  });
 });

@@ -1,0 +1,46 @@
+{
+  "name": "@dev-sync/webpack",
+  "version": "0.0.1",
+  "description": "Next.js (webpack dev) integration for css-devtools-sync — rewrites the apply engine onto the app's own origin, forces CSS dev sourcemaps, and stamps JSX host elements. Turbopack is unsupported (no stable plugin API): run `next dev --webpack`.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./handler": {
+      "types": "./dist/handler.d.ts",
+      "import": "./dist/handler.js",
+      "default": "./dist/handler.js"
+    },
+    "./babel": {
+      "types": "./dist/babel.d.ts",
+      "import": "./dist/babel.js",
+      "default": "./dist/babel.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@dev-sync/babel-plugin-source-locator": "workspace:*",
+    "@dev-sync/server": "workspace:*"
+  },
+  "peerDependencies": {
+    "next": ">=15 <17"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "next": "^16.0.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.0.0"
+  }
+}

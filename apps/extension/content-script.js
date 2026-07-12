@@ -365,3 +365,50 @@ buildHud();
 chrome.runtime.sendMessage({ type: "dev-sync:hud-ready" }, () => {
   void chrome.runtime.lastError; // no SW listener / no session — stay idle
 });
+
+// Cmd/Ctrl+Z reverts the last applied rule change; Cmd/Ctrl+Shift+Z re-applies
+// it. Both go through the engine's same-origin routes (the apply engine is
+// mounted on this page's own origin at /__dev-sync/*). Ignored while typing in a
+// field so native undo/redo still work; focus the page (e.g. click the HUD) to
+// reach this — a Cmd+Z with the DevTools Styles panel focused never reaches the
+// page.
+const UNDO_ENDPOINT = "/__dev-sync/undo";
+const REDO_ENDPOINT = "/__dev-sync/redo";
+let historyInFlight = false;
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "z" && e.key !== "Z") return;
+  if (e.altKey || (!e.metaKey && !e.ctrlKey)) return;
+  const t = e.target;
+  const tag = (t && t.tagName) || "";
+  if ((t && t.isContentEditable) || /^(INPUT|TEXTAREA|SELECT)$/.test(tag)) return;
+  if (historyInFlight) return;
+  historyInFlight = true;
+  e.preventDefault();
+
+  const isRedo = e.shiftKey;
+  const endpoint = isRedo ? REDO_ENDPOINT : UNDO_ENDPOINT;
+  const verb = isRedo ? "Redid" : "Undid";
+  const nothing = isRedo ? "Nothing to redo" : "Nothing to undo";
+  fetch(endpoint, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{}",
+  })
+    .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+    .then((res) => {
+      // The engine returns arrays (reverted / redone + skipped) — count them.
+      const list = res && (isRedo ? res.redone : res.reverted);
+      const changed = Array.isArray(list) ? list.length : 0;
+      const skipped = Array.isArray(res && res.skipped) ? res.skipped.length : 0;
+      if (changed > 0) {
+        const plural = changed === 1 ? "" : "s";
+        pushMessage(`${verb} ${changed} change${plural}${skipped ? `, ${skipped} skipped` : ""}`, "success");
+      } else {
+        pushMessage(nothing, "info");
+      }
+    })
+    .catch((err) => pushMessage(`${isRedo ? "Redo" : "Undo"} failed: ${err.message}`, "warn"))
+    .finally(() => {
+      historyInFlight = false;
+    });
+});

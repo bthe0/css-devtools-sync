@@ -279,3 +279,71 @@ test("switch is a real role=switch control (keyboard-operable button)", () => {
   assert.equal(sw.getAttribute("role"), "switch");
   assert.ok(sw.getAttribute("aria-label"));
 });
+
+test("Cmd/Ctrl+Z reverts the last change via the engine /undo route + toasts it", async () => {
+  const { window, shadow } = mount();
+  let called = null;
+  window.fetch = (url, opts) => {
+    called = { url, opts };
+    // Real engine shape: reverted/skipped are ARRAYS of JournalEntry/UndoSkip.
+    return Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({ reverted: [{ file: "a.css" }, { file: "b.css" }], skipped: [] }),
+    });
+  };
+  window.document.dispatchEvent(
+    new window.KeyboardEvent("keydown", { key: "z", metaKey: true, bubbles: true }),
+  );
+  assert.equal(called.url, "/__dev-sync/undo");
+  assert.equal(called.opts.method, "POST");
+  await new Promise((r) => setTimeout(r, 0)); // let the fetch promise + toast flush
+  const msgs = [...shadow().querySelectorAll(".feed .line .msg")].map((n) => n.textContent);
+  assert.ok(msgs.some((t) => /Undid 2 changes/.test(t)), "success toast rendered");
+});
+
+test("Cmd/Ctrl+Shift+Z re-applies via the engine /redo route + toasts it", async () => {
+  const { window, shadow } = mount();
+  let called = null;
+  window.fetch = (url, opts) => {
+    called = { url, opts };
+    return Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({ redone: [{ file: "a.css" }], skipped: [] }),
+    });
+  };
+  window.document.dispatchEvent(
+    new window.KeyboardEvent("keydown", { key: "z", metaKey: true, shiftKey: true, bubbles: true }),
+  );
+  assert.equal(called.url, "/__dev-sync/redo", "shift routes to /redo, not /undo");
+  assert.equal(called.opts.method, "POST");
+  await new Promise((r) => setTimeout(r, 0));
+  const msgs = [...shadow().querySelectorAll(".feed .line .msg")].map((n) => n.textContent);
+  assert.ok(msgs.some((t) => /Redid 1 change\b/.test(t)), "redo success toast rendered");
+});
+
+test("Cmd/Ctrl+Shift+Z with nothing to redo toasts 'Nothing to redo'", async () => {
+  const { window, shadow } = mount();
+  window.fetch = () =>
+    Promise.resolve({ ok: true, json: () => Promise.resolve({ redone: [], skipped: [] }) });
+  window.document.dispatchEvent(
+    new window.KeyboardEvent("keydown", { key: "z", ctrlKey: true, shiftKey: true, bubbles: true }),
+  );
+  await new Promise((r) => setTimeout(r, 0));
+  const msgs = [...shadow().querySelectorAll(".feed .line .msg")].map((n) => n.textContent);
+  assert.ok(msgs.some((t) => /Nothing to redo/.test(t)), "empty-redo toast rendered");
+});
+
+test("Cmd/Ctrl+Z while typing in a field does not trigger undo (native undo wins)", () => {
+  const { window } = mount();
+  let called = false;
+  window.fetch = () => {
+    called = true;
+    return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+  };
+  const input = window.document.createElement("input");
+  window.document.body.appendChild(input);
+  input.dispatchEvent(
+    new window.KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true }),
+  );
+  assert.equal(called, false, "field keystrokes are left to the browser");
+});

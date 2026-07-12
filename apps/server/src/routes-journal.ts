@@ -1,6 +1,11 @@
 import type { FastifyInstance, preHandlerHookHandler } from "fastify";
-import { JournalListSchema, UndoRequestSchema, UndoResultSchema } from "@dev-sync/contract";
-import { readJournal, undo, type JournalConfig } from "./journal.js";
+import {
+  JournalListSchema,
+  RedoResultSchema,
+  UndoRequestSchema,
+  UndoResultSchema,
+} from "@dev-sync/contract";
+import { readJournal, redo, undo, type JournalConfig } from "./journal.js";
 
 const DEFAULT_LIMIT = 50;
 const MIN_LIMIT = 1;
@@ -19,14 +24,14 @@ function clampLimit(raw: string | undefined): number {
 }
 
 /**
- * Registers GET /journal and POST /undo on `app`. Kept as a standalone
+ * Registers GET /journal and POST /undo + /redo on `app`. Kept as a standalone
  * plugin (rather than inlined in server.ts) so the write-journal lane can be
  * built and tested independently; the orchestrator wires this into
  * buildServer() by calling registerJournalRoutes(app, cfg, preHandler).
  *
- * `preHandler` (the shared-token gate) applies to BOTH routes — /undo mutates
- * files (reverting a write) and /journal exposes source before/after content,
- * so neither should be reachable when /apply itself is token-gated.
+ * `preHandler` (the shared-token gate) applies to ALL routes — /undo and /redo
+ * mutate files (reverting/re-applying a write) and /journal exposes source
+ * before/after content, so none should be reachable when /apply is token-gated.
  */
 export function registerJournalRoutes(
   app: FastifyInstance,
@@ -54,5 +59,11 @@ export function registerJournalRoutes(
     }
     const result = await undo(cfg, parsed.data, req.log);
     return reply.code(200).send(UndoResultSchema.parse(result));
+  });
+
+  // Bodyless — redo always re-applies whatever the most-recent undo reverted.
+  app.post("/redo", opts, async (req, reply) => {
+    const result = await redo(cfg, req.log);
+    return reply.code(200).send(RedoResultSchema.parse(result));
   });
 }

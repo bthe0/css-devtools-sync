@@ -411,6 +411,13 @@ export const JournalEntrySchema = z.object({
   before: z.string(),
   /** File content this write produced (drift guard for undo). */
   after: z.string(),
+  /**
+   * What produced this entry. Absent (legacy) or "apply" = a normal sync write;
+   * "undo" = the swapped write an undo appended; "redo" = the swapped write a
+   * redo appended. Redo is only valid when the newest entry is an "undo", and a
+   * fresh "apply" after an undo naturally shadows it (newest is no longer "undo").
+   */
+  kind: z.enum(["apply", "undo", "redo"]).optional(),
 });
 export type JournalEntry = z.infer<typeof JournalEntrySchema>;
 
@@ -448,6 +455,15 @@ export const UndoResultSchema = z.object({
   skipped: z.array(UndoSkipSchema),
 });
 export type UndoResult = z.infer<typeof UndoResultSchema>;
+
+/** POST /redo response. Re-applies the change the most-recent undo reverted. */
+export const RedoResultSchema = z.object({
+  /** Entries successfully re-applied (file restored to the original `after`). */
+  redone: z.array(JournalEntrySchema),
+  /** Refused: newest entry isn't an undo (nothing to redo), file drifted, or missing. */
+  skipped: z.array(UndoSkipSchema),
+});
+export type RedoResult = z.infer<typeof RedoResultSchema>;
 
 // ---------------------------------------------------------------------------
 // Template describe (extension -> server -> extension)

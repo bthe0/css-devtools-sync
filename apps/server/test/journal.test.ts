@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { appendJournal, readJournal, undo, withJournalLock, type JournalConfig } from "../src/journal.js";
+import { appendJournal, readJournal, redo, undo, withJournalLock, type JournalConfig } from "../src/journal.js";
 import { readWorkspaceFile, writeWorkspaceFile } from "../src/workspace.js";
 
 let workspaceRoot: string;
@@ -197,5 +197,65 @@ describe("undo", () => {
     expect(result.skipped).toEqual([
       { id: "does-not-exist", file: "", reason: "no journal entry with that id" },
     ]);
+  });
+});
+
+describe("redo", () => {
+  // Seed a committed edit on disk + in the journal, then undo it — the shared
+  // starting point for the redo cases (file at `before`, newest entry kind=undo).
+  async function seedThenUndo() {
+    const e = baseEntry({ file: "a.css" });
+    writeWorkspaceFile(workspaceRoot, "a.css", e.after);
+    await appendJournal(cfg, e);
+    await undo(cfg, {});
+    expect(readWorkspaceFile(workspaceRoot, "a.css")).toBe(e.before);
+    return e;
+  }
+
+  it("re-applies the change the most-recent undo reverted", async () => {
+    const e = await seedThenUndo();
+    const result = await redo(cfg);
+    expect(result.redone).toHaveLength(1);
+    expect(result.skipped).toEqual([]);
+    expect(readWorkspaceFile(workspaceRoot, "a.css")).toBe(e.after);
+    // The redo is itself journaled as kind:"redo".
+    expect((await readJournal(cfg, 1))[0]?.kind).toBe("redo");
+  });
+
+  it("is a no-op on an empty journal", async () => {
+    const result = await redo(cfg);
+    expect(result).toEqual({ redone: [], skipped: [] });
+  });
+
+  it("does nothing when the newest entry isn't an undo (a fresh edit shadows redo)", async () => {
+    await seedThenUndo();
+    // A brand-new sync write lands AFTER the undo — now there is nothing to redo.
+    writeWorkspaceFile(workspaceRoot, "a.css", ".card { color: green; }\n");
+    await appendJournal(
+      cfg,
+      baseEntry({ file: "a.css", before: ".card { color: red; }\n", after: ".card { color: green; }\n" }),
+    );
+    const result = await redo(cfg);
+    expect(result.redone).toEqual([]);
+    // File left untouched — the new edit stands.
+    expect(readWorkspaceFile(workspaceRoot, "a.css")).toBe(".card { color: green; }\n");
+  });
+
+  it("round-trips undo -> redo -> undo, toggling the file", async () => {
+    const e = await seedThenUndo(); // file == before
+    await redo(cfg);
+    expect(readWorkspaceFile(workspaceRoot, "a.css")).toBe(e.after);
+    await undo(cfg, {}); // undo the redo
+    expect(readWorkspaceFile(workspaceRoot, "a.css")).toBe(e.before);
+  });
+
+  it("refuses to redo over a hand-edit (drift guard)", async () => {
+    await seedThenUndo();
+    writeWorkspaceFile(workspaceRoot, "a.css", "/* touched by hand */\n");
+    const result = await redo(cfg);
+    expect(result.redone).toEqual([]);
+    expect(result.skipped).toHaveLength(1);
+    expect(result.skipped[0]?.reason).toMatch(/hand-edit/);
+    expect(readWorkspaceFile(workspaceRoot, "a.css")).toBe("/* touched by hand */\n");
   });
 });

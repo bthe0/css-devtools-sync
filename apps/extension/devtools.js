@@ -26,6 +26,7 @@ import {
   buildRemoveAttrChange,
   resolveTextSegmentEdit,
 } from "./background/diff.js";
+import { partitionSkips } from "./background/summary.js";
 
 // The apply engine is mounted on the inspected page's OWN dev server under this
 // prefix (Vite `server.middlewares.use("/__dev-sync", …)`), so requests are
@@ -501,12 +502,43 @@ const SELECTION_EVAL = `(() => {
   return ctx;
 })()`;
 
+/**
+ * Readable reason for an inspectedWindow.eval failure. Chrome's exceptionInfo is
+ * one of two shapes — a page-level throw (`isException` + `value`) or an
+ * API-level failure (`isError` + `code`/`description`, e.g. the inspected frame
+ * detached because an HMR reload raced this eval). The extension error page
+ * stringifies the raw object as "[object Object]", so pull the meaningful field.
+ */
+function formatEvalException(info) {
+  if (!info || typeof info !== "object") return "unknown error";
+  if (info.isException) return String(info.value ?? "page threw while reading the selection");
+  const parts = [info.code, info.description].filter((p) => typeof p === "string" && p);
+  return parts.length > 0 ? parts.join(": ") : "eval could not run in the inspected frame";
+}
+
+// Dedup the selection-read warning: this fires benignly whenever an HMR reload
+// races the eval, so without a guard it floods the extension error console with
+// the same line. Warn once per distinct reason; a later clean read resets it so
+// a genuinely new failure notifies again.
+let lastSelectionEvalError = null;
+
 function onSelectionChanged() {
   chrome.devtools.inspectedWindow.eval(SELECTION_EVAL, (result, exceptionInfo) => {
     if (exceptionInfo && (exceptionInfo.isError || exceptionInfo.isException)) {
-      console.warn("[dev-sync] could not read selected element:", exceptionInfo);
+      const reason = formatEvalException(exceptionInfo);
+      if (reason !== lastSelectionEvalError) {
+        lastSelectionEvalError = reason;
+        // Non-fatal: the content-script read is the primary source; this eval is
+        // only a fallback, so a failure just leaves the selection unresolved.
+        console.warn(
+          `[dev-sync] couldn't read the selected element (${reason}) — using the content-script read instead.`,
+        );
+      }
+      // Don't let a failed read strand a stale selection on later CSS changes.
+      selectedElement = null;
       return;
     }
+    lastSelectionEvalError = null;
     // Remember the selection so CSS-poller changes can carry it (Tailwind
     // className edits + styled-components template resolution both key off the
     // element, not the stylesheet).
@@ -744,7 +776,14 @@ function pollCss() {
                 cssRevertGuard.delete(gkey);
                 continue;
               }
-              cssRevertGuard.set(gkey, change.oldValue);
+              // Keep the FIRST oldValue only — symmetric with addChange's collapse
+              // (585), which retains the true original across rapid successive
+              // edits. A numeric stepper (holding the ↑ arrow) mutates the value
+              // several times per poll window; overwriting the guard each tick left
+              // it holding a mid-step value (e.g. 19px) instead of the pre-edit
+              // original (16px), so the post-apply HMR bounce back to 16px escaped
+              // the guard and got re-applied — silently reverting the user's edit.
+              if (!cssRevertGuard.has(gkey)) cssRevertGuard.set(gkey, change.oldValue);
             }
             // cssText coordinates come from the browser-serialized CSSOM, not the
             // served compiled sheet — a range here would mis-resolve. The server
@@ -1190,11 +1229,20 @@ async function syncToSource(opts = {}) {
       }
     }
 
+    // Split expected dynamic-markup rejections (the pollers auto-emit a set-text
+    // for every mixed/dynamic element each tick — e.g. a `Region {{eu-west-1}}`
+    // demo line — which the engine correctly declines and we've just suppressed
+    // above) from ACTIONABLE skips (a CSS rule that wouldn't resolve, drift on a
+    // committed file, an internal error). Only actionable skips are user-facing:
+    // counting the dynamic ones would latch the badge amber and print "N skipped"
+    // for edits the user never made, masking that their real edit succeeded.
+    const { actionable: actionableSkips } = partitionSkips(result.skipped);
+
     postPendingSnapshot();
     notifyPending();
 
     if (toast && result.applied.length > 0) {
-      toastSummary(result.applied, result.skipped.length);
+      toastSummary(result.applied, actionableSkips.length);
     }
     // A new rule that could land in several files needs the user to choose —
     // point them at the panel. Deduped so an unresolved placement doesn't
@@ -1208,10 +1256,12 @@ async function syncToSource(opts = {}) {
       );
     }
 
-    // Clean apply clears any latched yellow; a partial one keeps the badge
-    // amber so the unresolved skip/placement stays visible.
+    // Clean apply clears any latched yellow; an ACTIONABLE skip or an unresolved
+    // placement keeps the badge amber so the real problem stays visible. Expected
+    // dynamic-markup skips are excluded — they're silent, self-suppressing, and
+    // must not strand the badge amber for a healthy session.
     setStatus(
-      result.skipped.length > 0 || result.needsPlacement.length > 0 ? "yellow" : "green"
+      actionableSkips.length > 0 || result.needsPlacement.length > 0 ? "yellow" : "green"
     );
   } finally {
     syncing = false;

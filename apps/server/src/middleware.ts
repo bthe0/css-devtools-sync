@@ -6,6 +6,7 @@ import {
   DescribeTemplateRequestSchema,
   JournalListSchema,
   UndoRequestSchema,
+  RedoResultSchema,
   UndoResultSchema,
   VerifyRequestSchema,
 } from "@dev-sync/contract";
@@ -14,7 +15,7 @@ import { SkipChangeError } from "./errors.js";
 import { WorkspaceError } from "./workspace.js";
 import { applyPayload, describeTemplate } from "./apply.js";
 import { verifyChecks } from "./verify.js";
-import { readJournal, undo } from "./journal.js";
+import { readJournal, redo, undo } from "./journal.js";
 
 /** Connect-style middleware: (req, res, next). Matches Vite's `server.middlewares` and webpack devServer. */
 export type ConnectMiddleware = (
@@ -32,6 +33,7 @@ const ROUTES: Record<string, "GET" | "POST"> = {
   "/describe": "POST",
   "/verify": "POST",
   "/undo": "POST",
+  "/redo": "POST",
   "/journal": "GET",
 };
 
@@ -146,6 +148,12 @@ async function handle(
       return;
     }
     sendJson(res, 200, UndoResultSchema.parse(await undo(cfg, parsed.data, log)));
+    return;
+  }
+
+  if (route === "/redo") {
+    // Bodyless — redo always targets the most-recent undo.
+    sendJson(res, 200, RedoResultSchema.parse(await redo(cfg, log)));
     return;
   }
 

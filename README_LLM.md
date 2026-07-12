@@ -47,14 +47,42 @@ Nothing outside that directory can ever be written.
 > `apps/test-app` instead.)"
 
 - If they name their own project → that path becomes `DEV_SYNC_WORKSPACE_ROOT`.
-  Their app must be a **Vite** project; add the plugin to its `vite.config`:
-  ```ts
-  import { devSync } from "@dev-sync/vite";
-  export default defineConfig({ plugins: [react(), devSync()] });
-  ```
-  (Next.js / Nuxt / Astro / SvelteKit own their build — not supported yet. Say
-  so and stop if that's their stack.)
-- If they want the demo → use `$PWD/apps/test-app` and run the bundled fixture.
+  Wire it by stack:
+  - **Vite** (Vue / Svelte / Qwik / React+Vite) — add the plugin to `vite.config`:
+    ```ts
+    import { devSync } from "@dev-sync/vite";
+    export default defineConfig({ plugins: [react(), devSync()] });
+    ```
+  - **Next.js (App Router)** — via `@dev-sync/webpack`, three pieces, and it runs
+    on the **webpack** dev server (`next dev --webpack`; Turbopack is unsupported):
+    ```ts
+    // next.config.ts
+    import { withDevSync } from "@dev-sync/webpack";
+    export default withDevSync({ /* their config */ });
+    ```
+    ```ts
+    // pages/api/__dev-sync/[...path].ts — mounts the engine on their origin
+    import { createDevSyncHandler, engineApiConfig } from "@dev-sync/webpack/handler";
+    export const config = engineApiConfig;
+    export default createDevSyncHandler();
+    ```
+    ```json
+    // .babelrc — stamps JSX host elements (switches Next off SWC onto Babel)
+    { "presets": ["next/babel"],
+      "plugins": [["@dev-sync/babel-plugin-source-locator", { "root": ".", "requireUseClientDirective": true }]] }
+    ```
+    Then WARN the human about two hard Next constraints, or every route 500s:
+    1. **RSC:** the stamp is a `ref`, illegal in a Server Component. `requireUseClientDirective`
+       gates stamping to modules opening with `"use client"` — the root `layout.tsx`
+       stays a Server Component (unstamped, fine). Element / Tailwind edits only sync
+       from `"use client"` files; CSS-file / Module / Sass / Emotion tiers need no directive.
+    2. **`next/font` is incompatible** with the Babel config (it requires SWC) — tell
+       them to remove it and use a plain CSS font stack.
+  - **Nuxt / Astro / SvelteKit / Remix** own their build — not supported yet. Say so
+    and stop if that's their stack.
+- If they want the demo → use `$PWD/apps/test-app` and run the bundled fixture, or
+  point them at the runnable `examples/` (`vite-react`, port 5299; `next-app`,
+  `next dev --webpack -p 4300`).
 
 Never guess the path. Never pick a root that isn't the project they named.
 
@@ -111,7 +139,10 @@ The extension is MV3, loaded **unpacked**. It is NOT auto-installed.
 
 Tell the human: open the app's DevTools → **Source Sync** panel → edit a rule in
 the **Styles** panel → it writes back into the mapped source file under the
-workspace root. Undo is journaled (append-only JSONL, outside the jail).
+workspace root. Undo is journaled (append-only JSONL, outside the jail) — and
+**Cmd/Ctrl+Z on the page** reverts the last applied change, **Cmd/Ctrl+Shift+Z**
+re-applies it (focus the page, e.g. click the HUD, first; a Cmd+Z inside the
+DevTools panel never reaches the page).
 
 Report exactly what you ran, which ports are live, and the workspace root you
 jailed writes to.

@@ -22,7 +22,20 @@ const RUNTIME_SOURCE = "@dev-sync/babel-plugin-source-locator/runtime";
 export interface SourceLocatorOptions {
   /** Project root; emitted file paths are relative to this. Defaults to process.cwd(). */
   root?: string;
+  /**
+   * Next.js App Router only: when true, stamp a module *only* if it opens with
+   * the `"use client"` directive. The stamp attaches a `ref`, which is illegal
+   * in a React Server Component (the default in App Router) — so under Next the
+   * `.babelrc` runs plugin-wide but stamping is gated to client modules, where
+   * refs are valid and where DevTools editing actually happens. Left off for
+   * Vite, whose modules are all client and carry no directive.
+   */
+  requireUseClientDirective?: boolean;
 }
+
+/** True if a Program body opens with a top-of-file `"use client"` directive. */
+const hasUseClientDirective = (program: t.Program): boolean =>
+  program.directives.some((d) => d.value.value === "use client");
 
 type BabelApi = {
   types: typeof t;
@@ -78,7 +91,15 @@ export default function sourceLocatorBabelPlugin(api: BabelApi): PluginObj<
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- unwrapped CJS default, see comment above
     inherits: syntaxJsx as any,
     visitor: {
+      Program(programPath, state) {
+        // Resolve the client/server gate once per module (see option docs).
+        state.set(
+          "stampModule",
+          !state.opts.requireUseClientDirective || hasUseClientDirective(programPath.node),
+        );
+      },
       JSXOpeningElement(openingPath, state) {
+        if (state.get("stampModule") === false) return;
         const node = openingPath.node;
         if (!isHostElement(node.name)) return;
         if (!node.loc) return;

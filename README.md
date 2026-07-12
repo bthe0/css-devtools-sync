@@ -29,7 +29,7 @@ Plain CSS · Sass modules · Emotion/styled css-in-js · Tailwind class lists �
 ## Requirements
 
 - **Node ≥ 20** and **pnpm 10** (pinned via `packageManager`).
-- A **Vite** app (Vue, Svelte, Qwik, or React + Vite). Build-owning frameworks (Next.js, Nuxt, Astro, SvelteKit) aren't supported yet.
+- A **Vite** app (Vue, Svelte, Qwik, or React + Vite) via `@dev-sync/vite`, **or Next.js (App Router)** via `@dev-sync/webpack` — see [Next.js](#nextjs-app-router) below. Next runs on the **webpack** dev server (`next dev --webpack`); Turbopack has no stable plugin API and is unsupported. Nuxt/Astro/SvelteKit aren't supported yet.
 - **Chrome** (the DevTools extension is Chromium MV3).
 
 **AI-assisted rule placement is optional.** All five apply tiers are fully deterministic and run with no API key. Setting `ANTHROPIC_API_KEY` only lets Claude break ties when a *brand-new* rule could plausibly land in several source files; without it, dev-sync falls back to a deterministic pick. LLM placement is disabled entirely when `APP_ENV=production`. **Claude is not required to run dev-sync.**
@@ -70,6 +70,40 @@ pnpm dlx @dev-sync/server init
 
 Then **Load unpacked** `apps/extension/` at `chrome://extensions` (Developer mode on), open your app's DevTools, and use the **Source Sync** panel.
 
+### Next.js (App Router)
+
+Next runs on the **webpack** dev server (`next dev --webpack` — Turbopack is unsupported). Three small pieces:
+
+```ts
+// next.config.ts
+import { withDevSync } from "@dev-sync/webpack";
+export default withDevSync({ /* your config */ });
+```
+
+```ts
+// pages/api/__dev-sync/[...path].ts — mounts the apply engine on your origin
+import { createDevSyncHandler, engineApiConfig } from "@dev-sync/webpack/handler";
+export const config = engineApiConfig;
+export default createDevSyncHandler();
+```
+
+```json
+// .babelrc — stamps JSX host elements (switches Next to Babel in dev)
+{ "presets": ["next/babel"], "plugins": [["@dev-sync/babel-plugin-source-locator", { "root": ".", "requireUseClientDirective": true }]] }
+```
+
+`withDevSync` rewrites the page-origin `/__dev-sync/*` onto the API route and forces CSS dev sourcemaps; the `.babelrc` is what enables the element / set-text / Tailwind tiers (CSS-file/module/scss/emotion tiers work without it). Then run `next dev --webpack` and **Load unpacked** the extension as above.
+
+> **App Router (RSC):** the stamp attaches a `ref`, which is illegal in a React Server Component — so `requireUseClientDirective: true` gates stamping to modules that open with `"use client"`. Put it on the pages/components whose **element / Tailwind** edits you want synced; the **CSS-file / CSS-Module / Sass / Emotion** tiers resolve via sourcemaps and need no `"use client"`. Without the flag, `next/babel` stamps `<html>`/`<body>` in your root layout and every route 500s. (Also: drop `next/font` — it requires SWC and conflicts with the Babel config; use a plain CSS font stack.)
+
+### Undo / Redo
+
+**Cmd/Ctrl+Z** on the page reverts the last applied rule change (via the engine's `/undo`); **Cmd/Ctrl+Shift+Z** re-applies it (`/redo`). Focus the page (e.g. click the HUD) first — a Cmd+Z inside the DevTools Styles panel never reaches the page. Redo only fires when the last action was an undo; a fresh edit after an undo clears it (the journal's newest entry is no longer an undo).
+
+### Examples
+
+Runnable in [`examples/`](./examples): [`next-app`](./examples/next-app) (Next.js App Router, `next dev --webpack`, port 4300) and [`vite-react`](./examples/vite-react) (Vite + React, port 5299) — each demoing multiple styling tiers on one page.
+
 ## Monorepo layout
 
 ```
@@ -79,25 +113,33 @@ packages/
                                  with the off-DOM __srcLoc property (dev only) + Vite wrapper
   vite/                          @dev-sync/vite — drop-in devSync() plugin: CSS devSourcemap +
                                  apply engine on the dev-server origin + source-locator
+  webpack/                       @dev-sync/webpack — Next.js (webpack dev): withDevSync() config
+                                 wrapper + createDevSyncHandler (pages/api engine mount)
 apps/
   server/                        @dev-sync/server — apply engine + `dev-sync init` CLI; writes are
                                  jailed to DEV_SYNC_WORKSPACE_ROOT (fail-closed)
   test-app/                      @dev-sync/test-app — fixture app exercising every styling tier
   extension/                     Chrome MV3 DevTools extension (plain JS, loaded unpacked)
+examples/
+  next-app/                      Next.js App Router demo (next dev --webpack, port 4300)
+  vite-react/                    Vite + React demo (port 5299)
+e2e/                             @dev-sync/e2e — Playwright suite: loads the unpacked
+                                 extension, drives the live examples end-to-end
 ```
 
 `@dev-sync/contract` is the single source of truth for the extension ⇄ server protocol.
 
 ## Framework support
 
-The `devSync()` plugin works on any Vite app. Frameworks split two ways:
+Frameworks split three ways:
 
-| Bucket | Frameworks | `init` behavior |
+| Bucket | Frameworks | Integration |
 |---|---|---|
-| **Vite-plugin** (editable `plugins` array) | Vue, Svelte, Qwik, plain React+Vite | onboarded — `devSync()` added to your config |
-| **Build-owning** (own their config/build) | Next.js, Nuxt, Astro, SvelteKit, Remix, SolidStart | detected & skipped with a note (they need their own integration) |
+| **Vite-plugin** (editable `plugins` array) | Vue, Svelte, Qwik, plain React+Vite | `@dev-sync/vite` — `devSync()` in your config |
+| **Next.js (webpack dev)** | Next.js App Router | `@dev-sync/webpack` — `withDevSync()` + engine handler + `.babelrc` (see [above](#nextjs-app-router)) |
+| **Not yet supported** | Nuxt, Astro, SvelteKit, Remix, SolidStart | detected & skipped by `init` with a note |
 
-> **Next.js note:** Next runs its own dev server and defaults to Turbopack, so a webpack-plugin transport does not attach — Next support is tracked separately.
+> **Turbopack:** Next's `next dev` defaults to Turbopack, which has no stable plugin API — run `next dev --webpack`. The webpack path is where `withDevSync` attaches.
 
 ## What edits map where (per tier)
 
@@ -116,6 +158,24 @@ pnpm install
 pnpm build          # topological: builds contract + babel plugin + vite dists first
 pnpm typecheck      # builds packages, then tsc --noEmit everywhere
 pnpm test           # vitest across every workspace (470 tests)
+pnpm test:e2e       # Playwright: loads the extension, drives the live examples
+```
+
+### End-to-end tests
+
+`e2e/` is a Playwright suite that boots the two example dev servers and loads the
+**real unpacked extension** in a persistent Chromium context (MV3 → headed). It
+proves what the unit suites can't reach: the extension packages and injects its
+HUD, the apply engine is mounted on the page origin, and **Cmd/Ctrl+Z** on the
+page reaches the live engine and reverts a committed edit on disk. One boundary
+holds for any tool: no automation API can drive the Chrome **DevTools Styles
+panel**, so the literal "edit a rule in DevTools" gesture is exercised by POSTing
+the exact `CapturePayload` the extension would emit — everything below the panel
+is covered.
+
+```sh
+pnpm --filter @dev-sync/e2e exec playwright install chromium  # one-time
+pnpm test:e2e
 ```
 
 Run the fixture app + engine against the test app:

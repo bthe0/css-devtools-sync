@@ -1,0 +1,18 @@
+.card {
+  background: #161a26;
+  border: 1px solid #2c3145;
+  border-radius: 12px;
+  padding: 20px 22px;
+  max-width: 420px;
+}
+
+.title {
+  margin: 0 0 6px;
+  font-size: 18px;
+  color: #f0f2f8;
+}
+
+.body {
+  margin: 0;
+  color: #c3c8d6;
+}

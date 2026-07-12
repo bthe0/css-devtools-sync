@@ -76,8 +76,14 @@ export function sourceURLToRelativePath(sourceURL: string): string | null {
   if (!sourceURL) return null;
   let p = sourceURL;
 
-  // webpack-style scheme prefixes: webpack:///./src/x.css, webpack://ns/src/x.css
-  p = p.replace(/^webpack:\/\/\/?[^/]*\//, "");
+  // webpack-style scheme prefixes. Strip ONLY the scheme, the optional third
+  // slash, and an optional `./` — NOT the first real path segment. The old
+  // `[^/]*\/` ate a whole segment, which is only correct for the 2-slash
+  // namespace form (`webpack://ns/src/x.css`) but wrongly dropped a real dir in
+  // the common 3-slash form (`webpack:///app/globals.css` → `globals.css`, which
+  // then isn't found). Any residual leading segment (a namespace, or a nested
+  // serving root) is handled by resolveExistingFile's progressive-strip loop.
+  p = p.replace(/^webpack:\/\/\/?(?:\.\/)?/, "");
 
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(p)) {
     try {
