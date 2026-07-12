@@ -1,8 +1,9 @@
 // detect.ts — `css-sync init` stack detection (pure, read-only).
 //
 // Reads a target repo's package.json + vite.config.* and reports what init can
-// wire up. v1 is Vite-only: bundler is "vite" when a vite config file exists OR
-// vite is a (dev)dependency, else "unknown" (init exits early on unknown).
+// wire up. v1 is Vite-only: bundler is "vite" when a vite config file exists, or
+// vite is a dep NOT explained by a test runner (vitest) or a competing framework
+// (next/astro that pull vite transitively); else "unknown" (init exits early).
 //
 // Everything here tolerates missing/malformed inputs — detection never throws;
 // a repo we can't read cleanly just reports less, and init decides what to do.
@@ -97,8 +98,16 @@ export function detectStack(workspaceRoot: string): StackReport {
   const deps = allDepNames(pkg);
   const config = findViteConfig(workspaceRoot);
 
+  // A `vite` dep alone is NOT proof of a Vite app: Vitest and Vite-based
+  // frameworks (Next, Astro) pull vite in transitively. An on-disk vite.config
+  // is definitive; otherwise the dep-only fallback is disqualified when a
+  // competing framework owns the build or a test runner explains the dep —
+  // better to under-claim (no-vite) than misguide a Next user to make a config.
+  const FRAMEWORK_OWNS_BUILD = ["next", "astro"];
+  const viteDepIsBundler =
+    deps.has("vite") && !deps.has("vitest") && !FRAMEWORK_OWNS_BUILD.some((f) => deps.has(f));
   const bundler: StackReport["bundler"] =
-    config !== null || deps.has("vite") ? "vite" : "unknown";
+    config !== null || viteDepIsBundler ? "vite" : "unknown";
 
   const cssInJs: CssInJs[] = [];
   if (deps.has("styled-components")) cssInJs.push("styled-components");

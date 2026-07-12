@@ -70,6 +70,36 @@ describe("detectStack — bundler", () => {
     expect(r.bundler).toBe("vite");
     expect(r.configPath).toBeNull();
   });
+
+  // A `vite` dep is NOT proof of a Vite app — Vitest and Vite-based frameworks
+  // (Next, Astro) pull vite transitively. Without a vite.config on disk, those
+  // signals must disqualify the dep-only fallback so init reports no-vite
+  // instead of telling a Next user to "create a vite.config".
+  it("does NOT report vite for a Next app whose vite dep comes from vitest", () => {
+    const root = makeRepo({
+      "package.json": PKG({ next: "16.0.0", react: "^19.0.0" }, { vite: "^5.4.0", vitest: "^3.0.0" }),
+      "next.config.ts": `export default {};\n`,
+      "vitest.config.ts": `import { defineConfig } from "vitest/config";\nexport default defineConfig({});\n`,
+    });
+    const r = detectStack(root);
+    expect(r.bundler).toBe("unknown");
+    expect(r.configPath).toBeNull(); // vitest.config.ts is not a vite bundler config
+  });
+
+  it("does NOT report vite when a vite dep is explained solely by vitest (no config)", () => {
+    const root = makeRepo({ "package.json": PKG({}, { vite: "^5.4.0", vitest: "^3.0.0" }) });
+    expect(detectStack(root).bundler).toBe("unknown");
+  });
+
+  it("still reports vite when a real vite.config exists alongside next/vitest", () => {
+    const root = makeRepo({
+      "package.json": PKG({ next: "16.0.0" }, { vite: "^5.4.0", vitest: "^3.0.0" }),
+      "vite.config.ts": VITE_CONFIG,
+    });
+    const r = detectStack(root);
+    expect(r.bundler).toBe("vite"); // an on-disk vite config is definitive
+    expect(r.configPath).toBe(path.join(root, "vite.config.ts"));
+  });
 });
 
 describe("detectStack — css-in-js + tailwind + react plugin", () => {

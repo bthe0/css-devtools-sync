@@ -62,7 +62,8 @@ export function planInit(workspaceRoot: string): InitPlan {
   if (report.bundler !== "vite") {
     return base(report, {
       status: "no-vite",
-      message: "css-sync init v1 supports Vite projects only — no vite config or vite dependency found.",
+      message:
+        "css-sync init v1 supports Vite projects only — no Vite build detected (a vite dep from vitest or a framework like Next/Astro doesn't count).",
     });
   }
   if (!report.configPath || report.configSource === null) {
