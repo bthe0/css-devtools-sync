@@ -59,18 +59,38 @@ function mount(storedAutosave) {
 }
 
 const bg = (shadow) => shadow().querySelector(".badge").style.background;
+const host = (window) => window.document.getElementById("dev-sync-hud-host");
 
-test("HUD mounts a shadow-DOM host with bar + feed, badge starts idle-gray", () => {
-  const { window, shadow } = mount();
-  const host = window.document.getElementById("dev-sync-hud-host");
-  assert.ok(host, "host element present");
+test("HUD does NOT mount until a message arrives (idle localhost tabs stay clean)", () => {
+  const { window, emit } = mount();
+  assert.equal(host(window), null, "no HUD on load");
+  emit({ type: "dev-sync:status", state: "green" });
+  assert.ok(host(window), "HUD materializes on first message");
+});
+
+test("HUD mounts a shadow-DOM host with bar + feed, badge untouched by a plain message", () => {
+  const { window, emit, shadow } = mount();
+  // A non-status message materializes the HUD without painting the badge.
+  emit({ type: "dev-sync:message", text: "hello", kind: "info" });
+  assert.ok(host(window), "host element present");
   assert.ok(shadow().querySelector(".hud"), "frame rendered");
   assert.ok(shadow().querySelector(".bar"), "bar rendered");
   assert.ok(shadow().querySelector(".feed"), "feed rendered");
-  // Initial idle color is stylesheet-driven (.badge rule); no inline override
-  // until a status message arrives. The stylesheet carries the idle color.
+  // Idle color is stylesheet-driven (.badge rule); no inline override until a
+  // status message arrives. The stylesheet carries the idle color.
   assert.equal(bg(shadow), "");
   assert.ok(shadow().querySelector("style").textContent.includes("#6b7280"));
+});
+
+test("teardown removes the HUD (DevTools closed for this tab)", () => {
+  const { window, emit } = mount();
+  emit({ type: "dev-sync:status", state: "green" });
+  assert.ok(host(window), "HUD present after a message");
+  emit({ type: "dev-sync:teardown" });
+  assert.equal(host(window), null, "HUD removed on teardown");
+  // A later message rebuilds it (DevTools reopened).
+  emit({ type: "dev-sync:status", state: "green" });
+  assert.ok(host(window), "HUD rebuilds on the next session");
 });
 
 test("status message paints the badge per state", () => {
@@ -134,7 +154,8 @@ test("pending line is persistent, updates count, pluralizes, and clears at 0", (
 });
 
 test("autosave switch seeds from stored pref and toggles through storage", () => {
-  const { window, shadow, store } = mount(false); // stored OFF
+  const { window, emit, shadow, store } = mount(false); // stored OFF
+  emit({ type: "dev-sync:status", state: "green" }); // materialize the HUD
   const sw = shadow().querySelector(".sw");
   assert.equal(sw.getAttribute("aria-checked"), "false", "seeded from stored OFF");
 
@@ -149,12 +170,14 @@ test("autosave switch seeds from stored pref and toggles through storage", () =>
 });
 
 test("switch defaults ON when no pref is stored", () => {
-  const { shadow } = mount(); // nothing stored
+  const { emit, shadow } = mount(); // nothing stored
+  emit({ type: "dev-sync:status", state: "green" });
   assert.equal(shadow().querySelector(".sw").getAttribute("aria-checked"), "true");
 });
 
 test("switch is a real role=switch control (keyboard-operable button)", () => {
-  const { shadow } = mount();
+  const { emit, shadow } = mount();
+  emit({ type: "dev-sync:status", state: "green" });
   const sw = shadow().querySelector(".sw");
   assert.equal(sw.tagName, "BUTTON");
   assert.equal(sw.getAttribute("role"), "switch");

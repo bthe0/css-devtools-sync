@@ -8,10 +8,17 @@
 // read from the page's main world by the devtools client via
 // inspectedWindow.eval / CDP.
 //
+// The content script is injected into EVERY localhost tab (manifest matches),
+// but the HUD only materializes for the tab that has the DevTools panel open:
+// it is built lazily on the first message from the service worker (which only
+// targets the inspected tab) and torn down when DevTools disconnects. Idle
+// localhost tabs never render it.
+//
 // Messages arrive from the service worker (relayed from the DevTools client):
-//   dev-sync:status  { state: "green" | "yellow" | "red" | "idle" }
-//   dev-sync:message { text, kind: "info" | "warn" }
-//   dev-sync:pending { count }
+//   dev-sync:status   { state: "green" | "yellow" | "red" | "idle" }
+//   dev-sync:message  { text, kind: "info" | "warn" }
+//   dev-sync:pending  { count }
+//   dev-sync:teardown {}  — DevTools closed for this tab; remove the HUD
 // The autosave slider is owned here and mirrored through chrome.storage.local
 // (shared with the popup + DevTools panel).
 
@@ -38,7 +45,8 @@ const STATUS_LABEL = {
   idle: "Open DevTools to start syncing",
 };
 
-let hud = null; // { root, badge, feed, switchEl } once built
+let hud = null; // { root, badge, feed, switchEl } once built; null until first message
+let autosavePref = true; // stored pref, seeded async; seeds the switch when built
 
 function buildHud() {
   if (hud) return hud;
@@ -132,7 +140,7 @@ function buildHud() {
   const switchEl = document.createElement("button");
   switchEl.className = "sw";
   switchEl.setAttribute("role", "switch");
-  switchEl.setAttribute("aria-checked", "true");
+  switchEl.setAttribute("aria-checked", autosavePref ? "true" : "false");
   switchEl.setAttribute("aria-label", "Autosave edits to source");
   switchEl.title = "Autosave";
   switchEl.addEventListener("click", () => {
@@ -219,10 +227,19 @@ function setPending(count) {
   requestAnimationFrame(() => line.classList.add("show"));
 }
 
+// Remove the HUD (DevTools closed for this tab). Safe to call when absent.
+function destroyHud() {
+  document.getElementById(HOST_ID)?.remove();
+  hud = null;
+}
+
+// Track the stored pref; reflect it onto the switch only if the HUD exists
+// (never force-build — an idle tab must not grow a HUD from a storage echo).
 function reflectAutosave(on) {
-  const h = buildHud();
-  h.switchEl.setAttribute("aria-checked", on ? "true" : "false");
-  h.switchEl.title = on ? "Autosave on" : "Autosave off";
+  autosavePref = on;
+  if (!hud) return;
+  hud.switchEl.setAttribute("aria-checked", on ? "true" : "false");
+  hud.switchEl.title = on ? "Autosave on" : "Autosave off";
 }
 
 // Seed the switch from the stored pref (default ON), then track changes.
@@ -238,14 +255,16 @@ chrome.storage.onChanged.addListener((changed, area) => {
 
 chrome.runtime.onMessage.addListener((msg) => {
   if (!msg) return;
+  // Any of these is a signal from the DevTools session for THIS tab, so it's
+  // the moment to lazily materialize the HUD (setStatus/pushMessage/setPending
+  // all call buildHud()). Teardown removes it when DevTools closes.
   if (msg.type === "dev-sync:message" && typeof msg.text === "string") {
     pushMessage(msg.text, msg.kind);
   } else if (msg.type === "dev-sync:status") {
     setStatus(String(msg.state || "idle"));
   } else if (msg.type === "dev-sync:pending") {
     setPending(Number(msg.count) || 0);
+  } else if (msg.type === "dev-sync:teardown") {
+    destroyHud();
   }
 });
-
-// Build the HUD immediately so it's always visible on a dev page.
-buildHud();

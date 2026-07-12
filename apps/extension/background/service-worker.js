@@ -226,6 +226,14 @@ function postError(tabId, context, err) {
   });
 }
 
+// Tell the tab's content script to remove the in-page HUD (DevTools closed).
+// No-op if the page has no content script (non-localhost / not injected).
+function tearDownHud(tabId) {
+  chrome.tabs.sendMessage(tabId, { type: "dev-sync:teardown" }, () => {
+    void chrome.runtime.lastError;
+  });
+}
+
 // ---------------------------------------------------------------------------
 // CDP events
 // ---------------------------------------------------------------------------
@@ -482,6 +490,7 @@ chrome.runtime.onConnect.addListener((port) => {
       case "detach": {
         if (tabId !== null) {
           await stopSession(tabId);
+          tearDownHud(tabId);
           port.postMessage({ type: "detached", reason: "panel request" });
         }
         break;
@@ -592,8 +601,11 @@ chrome.runtime.onConnect.addListener((port) => {
   }
 
   port.onDisconnect.addListener(() => {
-    // Panel closed / DevTools closed — detach cleanly.
-    if (tabId !== null) void stopSession(tabId);
+    // Panel closed / DevTools closed — detach cleanly and remove the in-page HUD.
+    if (tabId !== null) {
+      void stopSession(tabId);
+      tearDownHud(tabId);
+    }
   });
 });
 
