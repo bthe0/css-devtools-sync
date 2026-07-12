@@ -10,7 +10,7 @@ import { StaticBlock } from "./components/StaticBlock";
 import { instrumentedEls, srcLoc } from "./test/srcLoc";
 
 /**
- * Spot-checks that the source-locator vite/babel plugin (@css-sync/babel-
+ * Spot-checks that the source-locator vite/babel plugin (@dev-sync/babel-
  * plugin-source-locator) actually records each rendered host element's source
  * location on an off-DOM `__srcLoc` property (file/line/component) in dev, for
  * every tier's component — the same property the extension reads over CDP.

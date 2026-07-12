@@ -8,7 +8,7 @@ import type {
   SetTextChange,
   SetTextSegmentChange,
   TemplatePart,
-} from "@css-sync/contract";
+} from "@dev-sync/contract";
 import { SkipChangeError } from "./errors.js";
 import { jailResolve } from "./workspace.js";
 import { buildAttrValueNode, buildTextChildNode } from "./fidelity.js";

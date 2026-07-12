@@ -18,7 +18,7 @@ importers:
       '@babel/parser':
         specifier: ^7.27.0
         version: 7.29.7
-      '@css-sync/contract':
+      '@dev-sync/contract':
         specifier: workspace:*
         version: link:../../packages/contract
       '@fastify/cors':
@@ -80,10 +80,10 @@ importers:
         specifier: ^6.4.3
         version: 6.4.3(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
     devDependencies:
-      '@css-sync/babel-plugin-source-locator':
+      '@dev-sync/babel-plugin-source-locator':
         specifier: workspace:*
         version: link:../../packages/babel-plugin-source-locator
-      '@css-sync/contract':
+      '@dev-sync/contract':
         specifier: workspace:*
         version: link:../../packages/contract
       '@emotion/babel-plugin':
@@ -149,7 +149,7 @@ importers:
       '@babel/types':
         specifier: ^7.29.7
         version: 7.29.7
-      '@css-sync/contract':
+      '@dev-sync/contract':
         specifier: workspace:*
         version: link:../contract
     devDependencies:
@@ -184,10 +184,10 @@ importers:
 
   packages/vite:
     dependencies:
-      '@css-sync/babel-plugin-source-locator':
+      '@dev-sync/babel-plugin-source-locator':
         specifier: workspace:*
         version: link:../babel-plugin-source-locator
-      '@css-sync/server':
+      '@dev-sync/server':
         specifier: workspace:*
         version: link:../../apps/server
     devDependencies:

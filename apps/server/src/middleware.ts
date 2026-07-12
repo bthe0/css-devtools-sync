@@ -8,7 +8,7 @@ import {
   UndoRequestSchema,
   UndoResultSchema,
   VerifyRequestSchema,
-} from "@css-sync/contract";
+} from "@dev-sync/contract";
 import type { Config } from "./config.js";
 import { SkipChangeError } from "./errors.js";
 import { WorkspaceError } from "./workspace.js";
@@ -71,7 +71,7 @@ function consoleLogger(): FastifyBaseLogger {
   const emit =
     (fn: (...a: unknown[]) => void) =>
     (...args: unknown[]): void =>
-      fn("[css-sync]", ...args);
+      fn("[dev-sync]", ...args);
   const log = {
     error: emit(console.error),
     warn: emit(console.warn),
@@ -193,13 +193,13 @@ async function handle(
 
 /**
  * Build the embedded apply-engine middleware. Mount it under a prefix on the
- * dev server (Vite: `server.middlewares.use("/__css-sync", mw)`), so the
+ * dev server (Vite: `server.middlewares.use("/__dev-sync", mw)`), so the
  * extension POSTs the inspected page's own origin — no separate port or CORS.
  * Requests to paths this middleware doesn't own fall through via `next()`.
  */
 export function createApplyMiddleware(cfg: Config): ConnectMiddleware {
   const log = consoleLogger();
-  return function cssSyncApplyMiddleware(req, res, next) {
+  return function devSyncApplyMiddleware(req, res, next) {
     const pathname = (req.url ?? "").split("?")[0] ?? "";
     const expectedMethod = ROUTES[pathname];
     if (!expectedMethod) {
@@ -227,7 +227,7 @@ export function createApplyMiddleware(cfg: Config): ConnectMiddleware {
         sendJson(res, 413, { error: "payload too large" });
         return;
       }
-      log.error({ err }, "css-sync middleware error");
+      log.error({ err }, "dev-sync middleware error");
       sendJson(res, 500, { error: "internal server error" });
     });
   };

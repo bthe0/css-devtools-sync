@@ -1,12 +1,12 @@
-// index.ts — `css-sync init` orchestrator: detect → plan → preview diff.
+// index.ts — `dev-sync init` orchestrator: detect → plan → preview diff.
 //
 // Pure and read-only. planInit decides what init should do to a target repo's
 // vite config and returns a unified diff to preview; it writes NOTHING — the
 // CLI owns the confirm+write step (the irreversible-edit safety gate).
 //
-// The core edit inserts cssSync() (from @css-sync/vite) into the config's
+// The core edit inserts devSync() (from @dev-sync/vite) into the config's
 // plugins array — always, since that's the whole point of onboarding; a note
-// tells the user to install @css-sync/vite when it's missing. Optional css-in-js
+// tells the user to install @dev-sync/vite when it's missing. Optional css-in-js
 // babel plugins (emotion/styled) ARE gated on their package being installed —
 // referencing an uninstalled optional plugin would break `vite dev`.
 import { createTwoFilesPatch } from "diff";
@@ -64,13 +64,13 @@ export function planInit(workspaceRoot: string): InitPlan {
   // their build + config, so detect and skip rather than auto-edit a
   // framework-managed config and falsely claim the sync is wired up. Vite-plugin
   // frameworks (Vue/Svelte/Qwik) have a user-editable plugins array and fall
-  // through to the normal cssSync() insertion below.
+  // through to the normal devSync() insertion below.
   if (report.framework !== null && report.frameworkOwnsBuild) {
     return base(report, {
       status: "framework",
       message:
-        `${report.framework} detected — css-sync init won't edit a framework-managed build config. ` +
-        "Skipped. Add the cssSync() plugin to your build manually if it exposes a Vite plugins array.",
+        `${report.framework} detected — dev-sync init won't edit a framework-managed build config. ` +
+        "Skipped. Add the devSync() plugin to your build manually if it exposes a Vite plugins array.",
     });
   }
 
@@ -78,13 +78,13 @@ export function planInit(workspaceRoot: string): InitPlan {
     return base(report, {
       status: "no-vite",
       message:
-        "css-sync init supports Vite projects only — no Vite build detected (a vite dep from vitest or a framework like Next/Astro doesn't count).",
+        "dev-sync init supports Vite projects only — no Vite build detected (a vite dep from vitest or a framework like Next/Astro doesn't count).",
     });
   }
   if (!report.configPath || report.configSource === null) {
     return base(report, {
       status: "no-config",
-      message: "vite is a dependency but no vite.config.* file was found — create one, then re-run css-sync init.",
+      message: "vite is a dependency but no vite.config.* file was found — create one, then re-run dev-sync init.",
     });
   }
 
@@ -116,25 +116,25 @@ export function planInit(workspaceRoot: string): InitPlan {
   const injectEmotion = wantEmotion && emotionPluginInstalled && report.hasReactPlugin;
   const injectStyled = wantStyled && styledPluginInstalled && report.hasReactPlugin;
 
-  // cssSync() is the core onboarding edit — always inserted. It references
-  // @css-sync/vite (the drop-in engine plugin); when the target repo hasn't
+  // devSync() is the core onboarding edit — always inserted. It references
+  // @dev-sync/vite (the drop-in engine plugin); when the target repo hasn't
   // installed it yet, the config edit + this required-dep note together are the
   // actionable step ("add the plugin line, install the package").
-  if (!deps.has("@css-sync/vite")) {
+  if (!deps.has("@dev-sync/vite")) {
     requiredDevDeps.push({
-      pkg: "@css-sync/vite",
-      reason: "the css-sync dev-server plugin (CSS sourcemap + apply engine + JSX stamping)",
+      pkg: "@dev-sync/vite",
+      reason: "the dev-sync dev-server plugin (CSS sourcemap + apply engine + JSX stamping)",
     });
   }
 
   const transformPlan: InitTransformPlan = {
-    cssSync: true,
+    devSync: true,
     emotion: injectEmotion,
     styledComponents: injectStyled,
   };
 
   const tailwindNote = report.tailwind
-    ? "Tailwind detected — its className path is assisted-only (cssSync stamps JSX hosts; utility-class edits stay manual in v1)."
+    ? "Tailwind detected — its className path is assisted-only (devSync stamps JSX hosts; utility-class edits stay manual in v1)."
     : null;
 
   let result;
@@ -161,7 +161,7 @@ export function planInit(workspaceRoot: string): InitPlan {
       warnings: allWarnings,
       requiredDevDeps,
       tailwindNote,
-      message: "vite config already has everything css-sync needs — nothing to change.",
+      message: "vite config already has everything dev-sync needs — nothing to change.",
     });
   }
 
@@ -176,6 +176,6 @@ export function planInit(workspaceRoot: string): InitPlan {
     warnings: allWarnings,
     requiredDevDeps,
     tailwindNote,
-    message: `Ready to enable css-sync in ${relConfigPath}.`,
+    message: `Ready to enable dev-sync in ${relConfigPath}.`,
   });
 }

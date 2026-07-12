@@ -152,7 +152,7 @@ describe("createApplyMiddleware", () => {
   });
 
   it("serves an empty write journal on GET /journal", async () => {
-    const journalDir = fs.mkdtempSync(path.join(os.tmpdir(), "css-sync-journal-"));
+    const journalDir = fs.mkdtempSync(path.join(os.tmpdir(), "dev-sync-journal-"));
     const jcfg = configFromRoot(os.tmpdir(), { journalDir });
     const { res, json } = await invoke(jcfg, { method: "GET", url: "/journal?limit=10" });
     expect(res.statusCode).toBe(200);
@@ -165,7 +165,7 @@ describe("createApplyMiddleware", () => {
   });
 
   it("undoes against an empty journal without error", async () => {
-    const journalDir = fs.mkdtempSync(path.join(os.tmpdir(), "css-sync-journal-"));
+    const journalDir = fs.mkdtempSync(path.join(os.tmpdir(), "dev-sync-journal-"));
     const jcfg = configFromRoot(os.tmpdir(), { journalDir });
     const { res, json } = await invoke(jcfg, { url: "/undo", body: {} });
     expect(res.statusCode).toBe(200);

@@ -1,6 +1,6 @@
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
-import { sourceLocator } from "@css-sync/babel-plugin-source-locator/vite";
+import { sourceLocator } from "@dev-sync/babel-plugin-source-locator/vite";
 
 // Mirrors vite.config.ts: the source-locator plugin must run in the test
 // transform pipeline too, so the render test can assert data-source-*

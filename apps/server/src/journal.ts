@@ -9,13 +9,13 @@ import {
   type UndoRequest,
   type UndoResult,
   type UndoSkip,
-} from "@css-sync/contract";
+} from "@dev-sync/contract";
 import { readWorkspaceFile, writeWorkspaceFile } from "./workspace.js";
 
 /**
  * Config surface journal.ts needs. Deliberately a superset the real server
  * Config satisfies structurally (journalDir is optional) — tests can override
- * where the journal lives without ever touching ~/.css-sync, and the real
+ * where the journal lives without ever touching ~/.dev-sync, and the real
  * server just passes its Config through untouched.
  */
 export interface JournalConfig {
@@ -23,7 +23,7 @@ export interface JournalConfig {
   readonly workspaceRoot: string;
   /**
    * Overrides the base directory the per-workspace journal file lives under
-   * (default `~/.css-sync/journal`). Test-only escape hatch so tests never
+   * (default `~/.dev-sync/journal`). Test-only escape hatch so tests never
    * touch the real home directory.
    */
   readonly journalDir?: string;
@@ -61,7 +61,7 @@ export function withJournalLock<T>(filePath: string, fn: () => Promise<T>): Prom
 }
 
 function defaultJournalDir(): string {
-  return path.join(os.homedir(), ".css-sync", "journal");
+  return path.join(os.homedir(), ".dev-sync", "journal");
 }
 
 /** sha256(workspaceRoot) hex, first 16 chars — stable per-workspace journal filename. */

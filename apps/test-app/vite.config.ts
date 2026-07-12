@@ -1,6 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import { sourceLocator } from "@css-sync/babel-plugin-source-locator/vite";
+import { sourceLocator } from "@dev-sync/babel-plugin-source-locator/vite";
 
 export default defineConfig({
   plugins: [

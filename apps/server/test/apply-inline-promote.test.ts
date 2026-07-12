@@ -4,8 +4,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
-import type { CapturePayloadInput, PromoteInlineStyleChange } from "@css-sync/contract";
-import { CaptureChangeSchema } from "@css-sync/contract";
+import type { CapturePayloadInput, PromoteInlineStyleChange } from "@dev-sync/contract";
+import { CaptureChangeSchema } from "@dev-sync/contract";
 import type { Config } from "../src/config.js";
 import { applyInlinePromote as applyInlinePromotePure } from "../src/apply-inline-promote.js";
 
@@ -76,7 +76,7 @@ function makeCfg(workspaceRoot: string): Config {
     syncToken: undefined,
     overridesFile: "src/index.css",
     // Journal inside the temp workspace tree — cleaned in afterEach, never the real home.
-    journalDir: path.join(workspaceRoot, ".css-sync-journal"),
+    journalDir: path.join(workspaceRoot, ".dev-sync-journal"),
   };
 }
 

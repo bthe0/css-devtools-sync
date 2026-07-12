@@ -347,7 +347,7 @@ test("isSourceLocatorAttribute: true for instrumentation attrs AND the selection
   assert.equal(isSourceLocatorAttribute(DATA_SOURCE_COMPONENT), true);
   // The transient selection marker must be ignored too — otherwise selecting
   // an element in the Elements panel churns a bogus set-attr/remove-attr.
-  assert.equal(isSourceLocatorAttribute("data-css-sync-inspected"), true);
+  assert.equal(isSourceLocatorAttribute("data-dev-sync-inspected"), true);
   assert.equal(isSourceLocatorAttribute("class"), false);
   assert.equal(isSourceLocatorAttribute("aria-label"), false);
 });

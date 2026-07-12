@@ -2,7 +2,7 @@ import type {
   AddDeclChange,
   DeleteDeclChange,
   ModifyChange,
-} from "@css-sync/contract";
+} from "@dev-sync/contract";
 import { SkipChangeError } from "./errors.js";
 import { escapeRegExp, lineOfOffset } from "./util.js";
 import {

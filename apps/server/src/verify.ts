@@ -1,4 +1,4 @@
-import type { VerifyRequest, VerifyResult } from "@css-sync/contract";
+import type { VerifyRequest, VerifyResult } from "@dev-sync/contract";
 
 /** Light normalization so cosmetic differences don't count as mismatches. */
 function normalizeCssValue(value: string): string {

@@ -509,7 +509,7 @@ async function getComputedStyles(tabId, checks) {
 // ---------------------------------------------------------------------------
 
 chrome.runtime.onConnect.addListener((port) => {
-  if (port.name !== "css-sync-panel") return;
+  if (port.name !== "dev-sync-panel") return;
   let tabId = null;
 
   port.onMessage.addListener((msg) => {
@@ -548,7 +548,7 @@ chrome.runtime.onConnect.addListener((port) => {
         // (same path as requestElementContextFromContentScript).
         if (tabId === null) break;
         const { text, kind } = summarizeAutosave(msg.applied ?? [], msg.skipped ?? 0);
-        chrome.tabs.sendMessage(tabId, { type: "css-sync:toast", text, kind }, () => {
+        chrome.tabs.sendMessage(tabId, { type: "dev-sync:toast", text, kind }, () => {
           void chrome.runtime.lastError; // no content script on this page — ignore
         });
         break;
@@ -560,7 +560,7 @@ chrome.runtime.onConnect.addListener((port) => {
         if (tabId === null) break;
         chrome.tabs.sendMessage(
           tabId,
-          { type: "css-sync:toast", text: String(msg.text ?? ""), kind: msg.kind },
+          { type: "dev-sync:toast", text: String(msg.text ?? ""), kind: msg.kind },
           () => {
             void chrome.runtime.lastError;
           }
@@ -631,9 +631,9 @@ chrome.runtime.onConnect.addListener((port) => {
 // chrome.debugger session — devtools.js already holds the live capture
 // session for the tab, and a second `attach` here would steal it (sessions
 // are keyed by tabId; see the "attach" case above). Instead the panel opens a
-// SEPARATE port ("css-sync-preview") that:
+// SEPARATE port ("dev-sync-preview") that:
 //   - mirrors devtools.js's pending-changes map (pushed via "pending-snapshot"
-//     on devtools.js's own "css-sync-panel" port, relayed here to the panel),
+//     on devtools.js's own "dev-sync-panel" port, relayed here to the panel),
 //   - tells devtools.js to pause its autosave auto-commit while a panel is
 //     open (so the user gets a chance to preview before anything writes), and
 //     to resume it when the panel closes,
@@ -660,7 +660,7 @@ function broadcastPending(tabId, snapshot) {
 }
 
 chrome.runtime.onConnect.addListener((port) => {
-  if (port.name !== "css-sync-preview") return;
+  if (port.name !== "dev-sync-preview") return;
   let tabId = null;
 
   port.onMessage.addListener((msg) => {

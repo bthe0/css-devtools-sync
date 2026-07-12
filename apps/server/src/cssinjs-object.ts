@@ -1,4 +1,4 @@
-import type { AddDeclChange, DeleteDeclChange, ModifyChange } from "@css-sync/contract";
+import type { AddDeclChange, DeleteDeclChange, ModifyChange } from "@dev-sync/contract";
 import { SkipChangeError } from "./errors.js";
 import { lineOfOffset } from "./util.js";
 import {

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// cli.ts — the `css-sync` bin. `css-sync init` onboards the tool onto a Vite
+// cli.ts — the `dev-sync` bin. `dev-sync init` onboards the tool onto a Vite
 // project: detect the stack, preview a config diff, and (only on confirm) insert
-// the cssSync() plugin (+ optional css-in-js babel plugins) into the vite config.
+// the devSync() plugin (+ optional css-in-js babel plugins) into the vite config.
 //
 // The interactive shell (readline / console / jailed write) is thin wiring.
 // The tested core is renderPlan (InitPlan -> text) and runInit (plan -> gated
@@ -43,7 +43,7 @@ export function renderPlan(plan: InitPlan): string {
 
   if (plan.requiredDevDeps.length > 0) {
     const names = plan.requiredDevDeps.map((d) => d.pkg).join(" ");
-    lines.push("Install these dev dependencies to unlock the full mapping, then re-run css-sync init:");
+    lines.push("Install these dev dependencies to unlock the full mapping, then re-run dev-sync init:");
     for (const d of plan.requiredDevDeps) lines.push(`  • ${d.pkg} — ${d.reason}`);
     lines.push(`  npm i -D ${names}`, "");
   }
@@ -72,7 +72,7 @@ export async function runInit(io: InitIO): Promise<InitOutcome> {
   }
 
   io.write(io.workspaceRoot, plan.configPath, plan.newSource);
-  io.log(`Updated ${plan.relConfigPath ?? plan.configPath}. Start your dev server and open the css-sync DevTools panel.`);
+  io.log(`Updated ${plan.relConfigPath ?? plan.configPath}. Start your dev server and open the dev-sync DevTools panel.`);
   return { status: plan.status, written: true };
 }
 
@@ -101,10 +101,10 @@ function parse(argv: string[]): ParsedArgs {
   };
 }
 
-const USAGE = `css-sync — DevTools-to-source CSS sync
+const USAGE = `dev-sync — DevTools-to-source CSS sync
 
 Usage:
-  css-sync init [--dir <path>] [--yes]
+  dev-sync init [--dir <path>] [--yes]
 
 Options:
   -d, --dir <path>   Target project root (default: current directory)
@@ -164,7 +164,7 @@ if (invokedDirectly) {
   main().then(
     (code) => process.exit(code),
     (err: unknown) => {
-      process.stderr.write(`css-sync: ${err instanceof Error ? err.message : String(err)}\n`);
+      process.stderr.write(`dev-sync: ${err instanceof Error ? err.message : String(err)}\n`);
       process.exit(1);
     },
   );

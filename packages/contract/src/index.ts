@@ -1,5 +1,5 @@
 /**
- * @css-sync/contract — single source of truth for the wire protocol between
+ * @dev-sync/contract — single source of truth for the wire protocol between
  * the DevTools extension (capture side) and the local sync server (apply side).
  *
  * All shapes are Zod v4 schemas; TS types are derived via z.infer.
@@ -20,10 +20,10 @@ export const DATA_SOURCE_COMPONENT = "data-source-component" as const;
 // Workspace package names (so downstream agents reference them consistently)
 // ---------------------------------------------------------------------------
 
-export const PKG_CONTRACT = "@css-sync/contract" as const;
-export const PKG_BABEL_PLUGIN = "@css-sync/babel-plugin-source-locator" as const;
-export const PKG_SERVER = "@css-sync/server" as const;
-export const PKG_TEST_APP = "@css-sync/test-app" as const;
+export const PKG_CONTRACT = "@dev-sync/contract" as const;
+export const PKG_BABEL_PLUGIN = "@dev-sync/babel-plugin-source-locator" as const;
+export const PKG_SERVER = "@dev-sync/server" as const;
+export const PKG_TEST_APP = "@dev-sync/test-app" as const;
 // The Chrome extension lives at apps/extension and is not a published package.
 
 // ---------------------------------------------------------------------------

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import type { FastifyBaseLogger } from "fastify";
-import type { AddRuleChange } from "@css-sync/contract";
+import type { AddRuleChange } from "@dev-sync/contract";
 import type { Config } from "./config.js";
 import { isUtilityClassSelector } from "./classlist.js";
 import { isCssLike } from "./resolve.js";

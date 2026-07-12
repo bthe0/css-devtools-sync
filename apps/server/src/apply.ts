@@ -14,7 +14,7 @@ import type {
   RequiredElementContext,
   SkippedChange,
   TemplateResponse,
-} from "@css-sync/contract";
+} from "@dev-sync/contract";
 import type { Config } from "./config.js";
 import { SkipChangeError } from "./errors.js";
 import { appendJournal } from "./journal.js";

@@ -1,4 +1,4 @@
-# @css-sync/test-app
+# @dev-sync/test-app
 
 Fixture app for end-to-end testing of every css-devtools-sync tier. Each
 component uses a different styling mechanism so the DevTools → source
@@ -7,12 +7,12 @@ round-trip can be exercised per tier in isolation.
 ## Run
 
 ```sh
-pnpm --filter @css-sync/test-app dev
+pnpm --filter @dev-sync/test-app dev
 # → http://localhost:5199  (fixed port, strictPort)
 ```
 
 Prereqs for a full round-trip: the extension (`apps/extension`) loaded in
-Chrome and the sync server (`@css-sync/server`) running on :7777. The app
+Chrome and the sync server (`@dev-sync/server`) running on :7777. The app
 itself runs standalone without either.
 
 ## Component → tier → source file
@@ -29,7 +29,7 @@ itself runs standalone without either.
 
 ## Per-tier test recipes
 
-All recipes start the same way: `pnpm --filter @css-sync/test-app dev`, open
+All recipes start the same way: `pnpm --filter @dev-sync/test-app dev`, open
 http://localhost:5199, open DevTools, make the edit, then click **Sync** in the
 extension panel and check the named file.
 
@@ -136,13 +136,13 @@ extension panel and check the named file.
 
 - Dev server port is fixed at **5199** (`strictPort: true`) so the extension
   and server can hardcode the origin.
-- `@css-sync/babel-plugin-source-locator` stamps `data-source-file` /
+- `@dev-sync/babel-plugin-source-locator` stamps `data-source-file` /
   `data-source-line` / `data-source-component` onto every host JSX element in
   dev (dev-only — it's a no-op when `NODE_ENV=production`, so a production
   `vite build` will not have these attributes). `src/instrumentation.test.tsx`
   and `src/components/StaticBlock.test.tsx` render each tier's component
   through the same Vite/babel pipeline and assert the attributes land — run
-  `pnpm --filter @css-sync/test-app test`. Note EmotionButton's JSX only uses
+  `pnpm --filter @dev-sync/test-app test`. Note EmotionButton's JSX only uses
   capitalized `@emotion/styled` component tags (`<Wrap>`, `<StyledButton>`,
   `<ClickCount>`), so the plugin — which only instruments lowercase host tags
   in the *source* — has nothing to stamp there; that tier resolves through

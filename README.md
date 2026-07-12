@@ -6,15 +6,15 @@ Dev tool that syncs CSS edits made in Chrome DevTools (Styles panel) back to you
 
 ```
 packages/
-  contract/                      @css-sync/contract — wire protocol (Zod v4 schemas + TS types)
-  babel-plugin-source-locator/   @css-sync/babel-plugin-source-locator — stamps JSX with data-source-* attrs (dev only) + Vite wrapper
+  contract/                      @dev-sync/contract — wire protocol (Zod v4 schemas + TS types)
+  babel-plugin-source-locator/   @dev-sync/babel-plugin-source-locator — stamps JSX with data-source-* attrs (dev only) + Vite wrapper
 apps/
-  server/                        @css-sync/server — local apply engine on 127.0.0.1:7777, writes are jailed to CSS_SYNC_WORKSPACE_ROOT
-  test-app/                      @css-sync/test-app — fixture app on :5199 exercising every tier
+  server/                        @dev-sync/server — local apply engine on 127.0.0.1:7777, writes are jailed to DEV_SYNC_WORKSPACE_ROOT
+  test-app/                      @dev-sync/test-app — fixture app on :5199 exercising every tier
   extension/                     Chrome MV3 DevTools extension (plain JS, loaded unpacked — not a workspace package)
 ```
 
-`@css-sync/contract` is the single source of truth for the extension <-> server protocol. See [PLAN.md](./PLAN.md) for honest per-tier status.
+`@dev-sync/contract` is the single source of truth for the extension <-> server protocol. See [PLAN.md](./PLAN.md) for honest per-tier status.
 
 ## Full run-through
 
@@ -27,10 +27,10 @@ pnpm build          # builds contract + babel plugin dists (test-app's vite.conf
 
 ### 2. Start the sync server (port 7777)
 
-The server refuses to start without `CSS_SYNC_WORKSPACE_ROOT` and will only ever write inside it. Point it at the test app:
+The server refuses to start without `DEV_SYNC_WORKSPACE_ROOT` and will only ever write inside it. Point it at the test app:
 
 ```sh
-CSS_SYNC_WORKSPACE_ROOT="$PWD/apps/test-app" pnpm --filter @css-sync/server dev
+DEV_SYNC_WORKSPACE_ROOT="$PWD/apps/test-app" pnpm --filter @dev-sync/server dev
 ```
 
 (Optionally `export ANTHROPIC_API_KEY=...` first — enables LLM-assisted *placement* of brand-new rules when several candidate files exist. Everything else is deterministic; see `.env.example`. The server reads plain env vars, it does not auto-load `.env`.)
@@ -38,7 +38,7 @@ CSS_SYNC_WORKSPACE_ROOT="$PWD/apps/test-app" pnpm --filter @css-sync/server dev
 ### 3. Start the test app (port 5199)
 
 ```sh
-pnpm --filter @css-sync/test-app dev
+pnpm --filter @dev-sync/test-app dev
 ```
 
 Open http://localhost:5199 — Vite dev serve runs the source-locator plugin, so every JSX host element carries `data-source-file` / `data-source-line` / `data-source-component`.

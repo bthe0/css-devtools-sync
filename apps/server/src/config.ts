@@ -9,7 +9,7 @@ const emptyToUndef = (v: unknown): unknown => (v === "" ? undefined : v);
 const EXTENSION_ID_RE = /^[a-p]{32}$/;
 
 const EnvSchema = z.object({
-  CSS_SYNC_WORKSPACE_ROOT: z.preprocess(emptyToUndef, z.string().min(1)),
+  DEV_SYNC_WORKSPACE_ROOT: z.preprocess(emptyToUndef, z.string().min(1)),
   PORT: z.preprocess(emptyToUndef, z.coerce.number().int().min(1).max(65535).default(7777)),
   APP_ENV: z.preprocess(
     emptyToUndef,
@@ -28,14 +28,14 @@ const EnvSchema = z.object({
    * into (as `.csync-* { ... }` rules). Must already be imported globally by
    * the app so the generated class takes effect. Defaults to src/index.css.
    */
-  CSS_SYNC_OVERRIDES_FILE: z.preprocess(emptyToUndef, z.string().min(1).default("src/index.css")),
+  DEV_SYNC_OVERRIDES_FILE: z.preprocess(emptyToUndef, z.string().min(1).default("src/index.css")),
   /**
    * Base directory the append-only write journal lives under (one JSONL file
    * per workspace). Deliberately OUTSIDE the workspace jail. Unset → the
-   * journal module's default (`~/.css-sync/journal`). Primarily a test/CI
+   * journal module's default (`~/.dev-sync/journal`). Primarily a test/CI
    * escape hatch so runs never pollute the real home directory.
    */
-  CSS_SYNC_JOURNAL_DIR: z.preprocess(emptyToUndef, z.string().min(1).optional()),
+  DEV_SYNC_JOURNAL_DIR: z.preprocess(emptyToUndef, z.string().min(1).optional()),
 });
 
 export interface Config {
@@ -50,7 +50,7 @@ export interface Config {
   readonly overridesFile: string;
   /**
    * Base dir for the write journal (one JSONL per workspace), OUTSIDE the jail.
-   * Undefined → journal module default (`~/.css-sync/journal`).
+   * Undefined → journal module default (`~/.dev-sync/journal`).
    */
   readonly journalDir?: string;
 }
@@ -86,16 +86,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     throw new Error(`Invalid configuration: ${detail}`);
   }
 
-  const rootInput = path.resolve(parsed.data.CSS_SYNC_WORKSPACE_ROOT);
+  const rootInput = path.resolve(parsed.data.DEV_SYNC_WORKSPACE_ROOT);
   let stat: fs.Stats;
   try {
     stat = fs.statSync(rootInput);
   } catch {
-    throw new Error(`Invalid configuration: CSS_SYNC_WORKSPACE_ROOT does not exist: ${rootInput}`);
+    throw new Error(`Invalid configuration: DEV_SYNC_WORKSPACE_ROOT does not exist: ${rootInput}`);
   }
   if (!stat.isDirectory()) {
     throw new Error(
-      `Invalid configuration: CSS_SYNC_WORKSPACE_ROOT is not a directory: ${rootInput}`,
+      `Invalid configuration: DEV_SYNC_WORKSPACE_ROOT is not a directory: ${rootInput}`,
     );
   }
 
@@ -106,7 +106,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     anthropicApiKey: parsed.data.ANTHROPIC_API_KEY,
     extensionId: parsed.data.EXTENSION_ID,
     syncToken: parsed.data.SYNC_TOKEN,
-    overridesFile: parsed.data.CSS_SYNC_OVERRIDES_FILE,
-    journalDir: parsed.data.CSS_SYNC_JOURNAL_DIR,
+    overridesFile: parsed.data.DEV_SYNC_OVERRIDES_FILE,
+    journalDir: parsed.data.DEV_SYNC_JOURNAL_DIR,
   };
 }

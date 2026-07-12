@@ -1,5 +1,5 @@
 {
-  "name": "@css-sync/server",
+  "name": "@dev-sync/server",
   "version": "0.0.1",
   "private": true,
   "description": "Local deterministic apply engine: receives CapturePayload from the DevTools extension, edits workspace source files, returns ApplyResult",
@@ -16,7 +16,7 @@
     }
   },
   "bin": {
-    "css-sync": "./dist/cli.js"
+    "dev-sync": "./dist/cli.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -28,7 +28,7 @@
   "dependencies": {
     "@babel/core": "^7.27.0",
     "@babel/parser": "^7.27.0",
-    "@css-sync/contract": "workspace:*",
+    "@dev-sync/contract": "workspace:*",
     "@fastify/cors": "^11.0.0",
     "diff": "^9.0.0",
     "fastify": "^5.3.0",

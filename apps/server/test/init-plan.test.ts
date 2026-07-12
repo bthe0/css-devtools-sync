@@ -1,11 +1,11 @@
-// init-plan.test.ts — `css-sync init` orchestrator (detect → plan → diff).
+// init-plan.test.ts — `dev-sync init` orchestrator (detect → plan → diff).
 //
 // planInit is pure/read-only: it reads the target repo, decides what init
 // should do, and returns a diff to preview — it writes NOTHING (the CLI owns
 // the confirm+write step). Key rules under test:
 //   - Vite-only; non-Vite / config-less repos get a clear early status.
-//   - The core edit inserts cssSync() (from @css-sync/vite); a missing
-//     @css-sync/vite is a required-dep note, not a blocker.
+//   - The core edit inserts devSync() (from @dev-sync/vite); a missing
+//     @dev-sync/vite is a required-dep note, not a blocker.
 //   - Build-owning frameworks (Next/Nuxt/SvelteKit/…) skip; Vite-plugin
 //     frameworks (Vue/Svelte/Qwik) onboard like React.
 //   - css-in-js babel plugins are GATED on the plugin package being installed.
@@ -36,8 +36,8 @@ function makeRepo(files: Record<string, string>): string {
 const PKG = (deps: Record<string, string> = {}, dev: Record<string, string> = {}) =>
   JSON.stringify({ name: "t", dependencies: deps, devDependencies: dev }, null, 2) + "\n";
 
-/** Base dev deps for a ready repo: vite + @css-sync/vite installed (no req-dep noise). */
-const DEV = (over: Record<string, string> = {}) => ({ vite: "^5.0.0", "@css-sync/vite": "^0.1.0", ...over });
+/** Base dev deps for a ready repo: vite + @dev-sync/vite installed (no req-dep noise). */
+const DEV = (over: Record<string, string> = {}) => ({ vite: "^5.0.0", "@dev-sync/vite": "^0.1.0", ...over });
 
 const VITE = `import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
@@ -70,12 +70,12 @@ export default defineConfig(makeConfig());
     expect(plan.newSource).toBeNull();
   });
 
-  it("config already has cssSync() → status up-to-date", () => {
+  it("config already has devSync() → status up-to-date", () => {
     const root = makeRepo({
       "package.json": PKG({}, DEV()),
-      "vite.config.ts": `import { cssSync } from "@css-sync/vite";
+      "vite.config.ts": `import { devSync } from "@dev-sync/vite";
 import { defineConfig } from "vite";
-export default defineConfig({ plugins: [cssSync()] });
+export default defineConfig({ plugins: [devSync()] });
 `,
     });
     expect(planInit(root).status).toBe("up-to-date");
@@ -116,15 +116,15 @@ import { defineConfig } from "vite";
 export default defineConfig({ plugins: [vue()] });
 `;
 
-  it("Vue → status ready, inserts cssSync() into the plugins array", () => {
+  it("Vue → status ready, inserts devSync() into the plugins array", () => {
     const root = makeRepo({
       "package.json": PKG({ vue: "^3.4.0" }, DEV({ "@vitejs/plugin-vue": "^5.0.0" })),
       "vite.config.ts": VUE,
     });
     const plan = planInit(root);
     expect(plan.status).toBe("ready");
-    expect(plan.newSource).toMatch(/cssSync\(\)/);
-    expect(plan.newSource).toContain(`import { cssSync } from "@css-sync/vite"`);
+    expect(plan.newSource).toMatch(/devSync\(\)/);
+    expect(plan.newSource).toContain(`import { devSync } from "@dev-sync/vite"`);
   });
 
   it("Svelte (not SvelteKit) → status ready", () => {
@@ -151,22 +151,22 @@ export default defineConfig({ plugins: [qwikVite()] });
 });
 
 describe("planInit — plain CSS baseline", () => {
-  it("plain repo (with @css-sync/vite) → status ready, inserts cssSync(), no required deps", () => {
+  it("plain repo (with @dev-sync/vite) → status ready, inserts devSync(), no required deps", () => {
     const root = makeRepo({ "package.json": PKG({}, DEV()), "vite.config.ts": VITE });
     const plan = planInit(root);
     expect(plan.status).toBe("ready");
-    expect(plan.newSource).toMatch(/cssSync\(\)/);
+    expect(plan.newSource).toMatch(/devSync\(\)/);
     expect(plan.diff).toContain("+");
     expect(plan.diff).toContain("vite.config.ts");
     expect(plan.requiredDevDeps).toEqual([]);
   });
 
-  it("@css-sync/vite not installed → still ready, listed as a required dep", () => {
+  it("@dev-sync/vite not installed → still ready, listed as a required dep", () => {
     const root = makeRepo({ "package.json": PKG({}, { vite: "^5.0.0" }), "vite.config.ts": VITE });
     const plan = planInit(root);
     expect(plan.status).toBe("ready");
-    expect(plan.newSource).toMatch(/cssSync\(\)/); // config edit still proposed
-    expect(plan.requiredDevDeps.map((d) => d.pkg)).toContain("@css-sync/vite");
+    expect(plan.newSource).toMatch(/devSync\(\)/); // config edit still proposed
+    expect(plan.requiredDevDeps.map((d) => d.pkg)).toContain("@dev-sync/vite");
   });
 });
 
@@ -185,7 +185,7 @@ describe("planInit — css-in-js plugin gating", () => {
     expect(plan.requiredDevDeps).toEqual([]);
   });
 
-  it("emotion but babel plugin NOT installed → cssSync only, plugin listed as a required dep", () => {
+  it("emotion but babel plugin NOT installed → devSync only, plugin listed as a required dep", () => {
     const root = makeRepo({
       "package.json": PKG({ "@emotion/react": "^11.0.0" }, DEV({ "@vitejs/plugin-react": "^4.0.0" })),
       "vite.config.ts": VITE,
@@ -193,7 +193,7 @@ describe("planInit — css-in-js plugin gating", () => {
     const plan = planInit(root);
     expect(plan.status).toBe("ready");
     expect(plan.newSource).not.toContain("@emotion/babel-plugin"); // not wired until installed
-    expect(plan.newSource).toMatch(/cssSync\(\)/); // baseline still applied
+    expect(plan.newSource).toMatch(/devSync\(\)/); // baseline still applied
     expect(plan.requiredDevDeps.map((d) => d.pkg)).toContain("@emotion/babel-plugin");
   });
 
@@ -212,7 +212,7 @@ describe("planInit — css-in-js plugin gating", () => {
 });
 
 describe("planInit — tailwind warn-and-note", () => {
-  it("tailwind present → sets a tailwindNote, still produces the cssSync baseline", () => {
+  it("tailwind present → sets a tailwindNote, still produces the devSync baseline", () => {
     const root = makeRepo({
       "package.json": PKG({}, DEV({ tailwindcss: "^3.4.0" })),
       "vite.config.ts": VITE,
@@ -220,6 +220,6 @@ describe("planInit — tailwind warn-and-note", () => {
     const plan = planInit(root);
     expect(plan.tailwindNote).toMatch(/tailwind/i);
     expect(plan.status).toBe("ready");
-    expect(plan.newSource).toMatch(/cssSync\(\)/);
+    expect(plan.newSource).toMatch(/devSync\(\)/);
   });
 });

@@ -1,11 +1,11 @@
-import { sourceLocator } from "@css-sync/babel-plugin-source-locator/vite";
-import { configFromRoot, createApplyMiddleware } from "@css-sync/server/engine";
+import { sourceLocator } from "@dev-sync/babel-plugin-source-locator/vite";
+import { configFromRoot, createApplyMiddleware } from "@dev-sync/server/engine";
 import type { Plugin } from "vite";
 
 /** Path prefix the embedded apply engine is mounted under on the dev server. */
-export const MOUNT_PREFIX = "/__css-sync";
+export const MOUNT_PREFIX = "/__dev-sync";
 
-export interface CssSyncOptions {
+export interface DevSyncOptions {
   /**
    * Project root used to relativise stamped source paths. Defaults to Vite's
    * resolved `config.root` (or `process.cwd()` before resolve).
@@ -13,7 +13,7 @@ export interface CssSyncOptions {
   root?: string;
   /**
    * Mount the embedded apply engine on the dev server (so the extension POSTs
-   * the page's own origin at `/__css-sync/*`). Default `true`. Set `false` to
+   * the page's own origin at `/__dev-sync/*`). Default `true`. Set `false` to
    * only enable the CSS sourcemap + JSX stamping and run the engine elsewhere.
    */
   engine?: boolean;
@@ -23,19 +23,19 @@ export interface CssSyncOptions {
  * Drop-in Vite integration for css-devtools-sync. Add once to `plugins`:
  *
  * ```ts
- * import { cssSync } from "@css-sync/vite";
- * export default defineConfig({ plugins: [react(), cssSync()] });
+ * import { devSync } from "@dev-sync/vite";
+ * export default defineConfig({ plugins: [react(), devSync()] });
  * ```
  *
  * Returns an array Vite flattens. It (1) turns on the CSS dev sourcemap so the
  * extension can map a Styles-panel edit back to source, (2) mounts the apply
- * engine on the dev server's own origin at `/__css-sync/*` (no separate port),
+ * engine on the dev server's own origin at `/__dev-sync/*` (no separate port),
  * and (3) stamps JSX host elements with their source location. All three are
  * dev-serve-only (`apply: "serve"`); production builds are untouched.
  */
-export function cssSync(options: CssSyncOptions = {}): Plugin[] {
+export function devSync(options: DevSyncOptions = {}): Plugin[] {
   const configPlugin: Plugin = {
-    name: "css-sync:config",
+    name: "dev-sync:config",
     apply: "serve",
     config() {
       return { css: { devSourcemap: true } };
@@ -43,7 +43,7 @@ export function cssSync(options: CssSyncOptions = {}): Plugin[] {
   };
 
   const enginePlugin: Plugin = {
-    name: "css-sync:engine",
+    name: "dev-sync:engine",
     apply: "serve",
     configureServer(server) {
       // Root is the bundler's project root — every engine write is jailed under it.
@@ -58,4 +58,4 @@ export function cssSync(options: CssSyncOptions = {}): Plugin[] {
   return plugins;
 }
 
-export default cssSync;
+export default devSync;

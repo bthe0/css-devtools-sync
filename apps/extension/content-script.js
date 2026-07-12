@@ -5,7 +5,7 @@
 // Element source location is NO LONGER read here: it lives off-DOM as a
 // `__srcLoc` JS property on each node (attached by the source-locator runtime
 // ref) and is read directly from the page's main world by the devtools client
-// via inspectedWindow.eval / CDP — the old `data-css-sync-inspected` marker +
+// via inspectedWindow.eval / CDP — the old `data-dev-sync-inspected` marker +
 // get-context round-trip are gone.
 
 "use strict";
@@ -16,7 +16,7 @@
 // hide it. Stacks up to 3, auto-dismisses, honors prefers-reduced-motion.
 // ---------------------------------------------------------------------------
 
-const TOAST_HOST_ID = "css-sync-toast-host";
+const TOAST_HOST_ID = "dev-sync-toast-host";
 const TOAST_TTL_MS = 3200;
 const TOAST_MAX = 3;
 
@@ -83,7 +83,7 @@ function showToast(text, kind) {
 }
 
 chrome.runtime.onMessage.addListener((msg) => {
-  if (msg && msg.type === "css-sync:toast" && typeof msg.text === "string") {
+  if (msg && msg.type === "dev-sync:toast" && typeof msg.text === "string") {
     showToast(msg.text, msg.kind);
   }
 });

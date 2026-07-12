@@ -13,7 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
-import type { CapturePayloadInput, ModifyChange } from "@css-sync/contract";
+import type { CapturePayloadInput, ModifyChange } from "@dev-sync/contract";
 import type { Config } from "../src/config.js";
 import { buildServer } from "../src/server.js";
 import { readJournal } from "../src/journal.js";
@@ -45,7 +45,7 @@ function makeCfg(root: string): Config {
     extensionId: undefined,
     syncToken: undefined,
     overridesFile: "src/index.css",
-    journalDir: path.join(root, ".css-sync-journal"), // contained, cleaned in afterEach
+    journalDir: path.join(root, ".dev-sync-journal"), // contained, cleaned in afterEach
   };
 }
 

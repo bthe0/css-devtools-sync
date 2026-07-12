@@ -8,7 +8,7 @@ import type {
   DeleteDeclChange,
   ElementContext,
   ModifyChange,
-} from "@css-sync/contract";
+} from "@dev-sync/contract";
 import { SkipChangeError } from "./errors.js";
 import { jailResolve } from "./workspace.js";
 import { assertClassTokensSafe, assertExactMatch, buildAttrValueNode } from "./fidelity.js";

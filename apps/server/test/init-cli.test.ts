@@ -1,4 +1,4 @@
-// init-cli.test.ts — `css-sync init` CLI seam (render + confirm-gated write).
+// init-cli.test.ts — `dev-sync init` CLI seam (render + confirm-gated write).
 //
 // The bin's interactive shell (readline/console) is thin wiring; the testable
 // core is renderPlan (InitPlan -> printable text) and runInit (plan -> gated
@@ -64,7 +64,7 @@ describe("runInit — confirm-gated write", () => {
     expect(out.written).toBe(true);
     expect(the.writes).toHaveLength(1);
     const [, target, content] = the.writes[0]!;
-    expect(content).toMatch(/cssSync\(\)/);
+    expect(content).toMatch(/devSync\(\)/);
     // the write is jailed-through-the-injected-writer with the config path
     expect(path.resolve(root, target)).toBe(path.join(root, "vite.config.ts"));
   });
@@ -103,10 +103,10 @@ describe("runInit — never writes for a non-ready status", () => {
 
   it("up-to-date → no write", async () => {
     const root = makeRepo({
-      "package.json": PKG({}, { vite: "^5.0.0", "@css-sync/vite": "^0.1.0" }),
-      "vite.config.ts": `import { cssSync } from "@css-sync/vite";
+      "package.json": PKG({}, { vite: "^5.0.0", "@dev-sync/vite": "^0.1.0" }),
+      "vite.config.ts": `import { devSync } from "@dev-sync/vite";
 import { defineConfig } from "vite";
-export default defineConfig({ plugins: [cssSync()] });
+export default defineConfig({ plugins: [devSync()] });
 `,
     });
     const out = await runInit(io(root));
@@ -149,7 +149,7 @@ describe("renderPlan — human output", () => {
     const root = readyRepo();
     const text = renderPlan(planInit(root));
     expect(text).toContain("vite.config.ts");
-    expect(text).toContain("cssSync");
+    expect(text).toContain("devSync");
   });
 
   it("lists required dev deps with an install hint", () => {

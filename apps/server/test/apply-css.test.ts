@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import postcss from "postcss";
 import postcssScss from "postcss-scss";
 import { describe, expect, it } from "vitest";
-import type { StyleSheetRef } from "@css-sync/contract";
+import type { StyleSheetRef } from "@dev-sync/contract";
 import { applyCssChange } from "../src/apply-css.js";
 import { SkipChangeError } from "../src/errors.js";
 

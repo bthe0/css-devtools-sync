@@ -1,5 +1,5 @@
 {
-  "name": "@css-sync/test-app",
+  "name": "@dev-sync/test-app",
   "version": "0.0.1",
   "private": true,
   "description": "Fixture app exercising every css-devtools-sync tier: plain CSS, Sass modules, Emotion CSS-in-JS, Tailwind class lists, and static JSX markup",
@@ -19,8 +19,8 @@
     "styled-components": "^6.4.3"
   },
   "devDependencies": {
-    "@css-sync/babel-plugin-source-locator": "workspace:*",
-    "@css-sync/contract": "workspace:*",
+    "@dev-sync/babel-plugin-source-locator": "workspace:*",
+    "@dev-sync/contract": "workspace:*",
     "@emotion/babel-plugin": "^11.13.5",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",

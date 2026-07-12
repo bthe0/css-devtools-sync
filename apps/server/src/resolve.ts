@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { SourceMapConsumer, type RawSourceMap } from "source-map-js";
-import type { SourceRange, StyleSheetRef } from "@css-sync/contract";
+import type { SourceRange, StyleSheetRef } from "@dev-sync/contract";
 import { jailResolve, resolveExistingFile } from "./workspace.js";
 
 export const isJsLike = (file: string): boolean => /\.(?:[cm]?[jt]sx?)$/i.test(file);

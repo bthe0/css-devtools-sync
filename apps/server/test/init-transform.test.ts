@@ -1,7 +1,7 @@
-// init-transform.test.ts — `css-sync init` AST edits on a vite config.
+// init-transform.test.ts — `dev-sync init` AST edits on a vite config.
 //
-// transformViteConfig performs recast-preserving edits: prepend a cssSync()
-// plugin (+ its @css-sync/vite import) — the drop-in that boots the CSS
+// transformViteConfig performs recast-preserving edits: prepend a devSync()
+// plugin (+ its @dev-sync/vite import) — the drop-in that boots the CSS
 // sourcemap, mounts the apply engine, and stamps JSX — and inject emotion /
 // styled-components babel plugins into the react() block. Contract:
 //   - idempotent: re-running produces byte-identical output (no double-add).
@@ -22,7 +22,7 @@ function assertParses(source: string): void {
 }
 
 const PLAN = (over: Partial<InitTransformPlan> = {}): InitTransformPlan => ({
-  cssSync: true,
+  devSync: true,
   emotion: false,
   styledComponents: false,
   ...over,
@@ -36,14 +36,14 @@ export default defineConfig({
 });
 `;
 
-describe("transformViteConfig — cssSync() plugin", () => {
-  it("prepends cssSync() and adds its @css-sync/vite import", () => {
+describe("transformViteConfig — devSync() plugin", () => {
+  it("prepends devSync() and adds its @dev-sync/vite import", () => {
     const { source, changed } = transformViteConfig(BARE, PLAN());
     expect(changed).toBe(true);
-    expect(source).toContain(`import { cssSync } from "@css-sync/vite"`);
-    expect(source).toMatch(/cssSync\(\)/);
+    expect(source).toContain(`import { devSync } from "@dev-sync/vite"`);
+    expect(source).toMatch(/devSync\(\)/);
     // prepended before react() in the plugins array
-    expect(source.indexOf("cssSync()")).toBeLessThan(source.indexOf("react("));
+    expect(source.indexOf("devSync()")).toBeLessThan(source.indexOf("react("));
     assertParses(source);
   });
 
@@ -53,7 +53,7 @@ export default defineConfig({ css: { modules: { localsConvention: "camelCase" } 
 `;
     const { source, changed } = transformViteConfig(input, PLAN());
     expect(changed).toBe(true);
-    expect(source).toMatch(/plugins:\s*\[cssSync\(\)\]/);
+    expect(source).toMatch(/plugins:\s*\[devSync\(\)\]/);
     expect(source).toContain("localsConvention"); // sibling preserved
     assertParses(source);
   });
@@ -64,8 +64,8 @@ export default defineConfig({ css: { modules: { localsConvention: "camelCase" } 
 };
 `;
     const { source } = transformViteConfig(input, PLAN());
-    expect(source).toMatch(/cssSync\(\)/);
-    expect(source).toContain(`import { cssSync } from "@css-sync/vite"`);
+    expect(source).toMatch(/devSync\(\)/);
+    expect(source).toContain(`import { devSync } from "@dev-sync/vite"`);
     assertParses(source);
   });
 
@@ -73,8 +73,8 @@ export default defineConfig({ css: { modules: { localsConvention: "camelCase" } 
     const once = transformViteConfig(BARE, PLAN()).source;
     const twice = transformViteConfig(once, PLAN()).source;
     expect(twice).toBe(once);
-    expect(once.match(/@css-sync\/vite/g)).toHaveLength(1);
-    expect(once.match(/cssSync\(\)/g)).toHaveLength(1);
+    expect(once.match(/@dev-sync\/vite/g)).toHaveLength(1);
+    expect(once.match(/devSync\(\)/g)).toHaveLength(1);
   });
 
   it("warns (does not throw) when plugins isn't an array literal", () => {
@@ -142,7 +142,7 @@ export default defineConfig({ plugins: [] });
 `;
     const { source, warnings } = transformViteConfig(input, PLAN({ emotion: true }));
     expect(warnings.some((w) => /react\(\)/.test(w))).toBe(true);
-    expect(source).toMatch(/cssSync\(\)/); // cssSync edit still applied
+    expect(source).toMatch(/devSync\(\)/); // devSync edit still applied
     assertParses(source);
   });
 });
@@ -164,8 +164,8 @@ const config = defineConfig({});
 
   it("full plan on a realistic config parses and applies everything", () => {
     const { source } = transformViteConfig(BARE, PLAN({ emotion: true, styledComponents: true }));
-    expect(source).toMatch(/cssSync\(\)/);
-    expect(source).toContain("@css-sync/vite");
+    expect(source).toMatch(/devSync\(\)/);
+    expect(source).toContain("@dev-sync/vite");
     expect(source).toContain("@emotion/babel-plugin");
     expect(source).toContain("babel-plugin-styled-components");
     assertParses(source);

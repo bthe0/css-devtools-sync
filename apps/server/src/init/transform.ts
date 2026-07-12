@@ -1,11 +1,11 @@
-// transform.ts — `css-sync init` AST edits on a vite config (recast-preserving).
+// transform.ts — `dev-sync init` AST edits on a vite config (recast-preserving).
 //
 // Two idempotent, fail-closed edits over the default-exported config object:
-//   1. prepend a cssSync() plugin + its import (@css-sync/vite) — the drop-in
+//   1. prepend a devSync() plugin + its import (@dev-sync/vite) — the drop-in
 //      that boots the CSS sourcemap, mounts the apply engine on the dev server,
 //      and stamps JSX host elements. Creates a plugins array if none exists.
 //   2. inject emotion / styled-components babel plugins into react()'s babel
-//      (React-only css-in-js labels; cssSync doesn't touch those).
+//      (React-only css-in-js labels; devSync doesn't touch those).
 //
 // Contract:
 //   - Never emit source that fails to re-parse (corruption guard throws Skip).
@@ -34,8 +34,8 @@ const recastBabelParser = {
 };
 
 export interface InitTransformPlan {
-  /** Prepend cssSync() (+ its @css-sync/vite import) — the drop-in engine plugin. */
-  readonly cssSync: boolean;
+  /** Prepend devSync() (+ its @dev-sync/vite import) — the drop-in engine plugin. */
+  readonly devSync: boolean;
   /** Inject @emotion/babel-plugin into react()'s babel.plugins. */
   readonly emotion: boolean;
   /** Inject babel-plugin-styled-components into react()'s babel.plugins. */
@@ -57,7 +57,7 @@ interface AnyNode {
   [key: string]: unknown;
 }
 
-const CSS_SYNC_MODULE = "@css-sync/vite";
+const DEV_SYNC_MODULE = "@dev-sync/vite";
 
 // --- small AST helpers -----------------------------------------------------
 
@@ -137,12 +137,12 @@ function findConfigObject(program: AnyNode): AnyNode {
 // --- individual edits (each returns whether it mutated the AST) -------------
 
 /**
- * Prepend `cssSync()` to the config's plugins array (creating the array if the
- * config has none) and add `import { cssSync } from "@css-sync/vite"`. cssSync()
+ * Prepend `devSync()` to the config's plugins array (creating the array if the
+ * config has none) and add `import { devSync } from "@dev-sync/vite"`. devSync()
  * is the drop-in: it enables the CSS dev sourcemap, mounts the apply engine on
  * the dev server, and stamps JSX — so init no longer writes those individually.
  */
-function ensureCssSyncPlugin(program: AnyNode, obj: AnyNode, warnings: string[]): boolean {
+function ensureDevSyncPlugin(program: AnyNode, obj: AnyNode, warnings: string[]): boolean {
   let mutated = false;
 
   let pluginsArr: AnyNode;
@@ -154,7 +154,7 @@ function ensureCssSyncPlugin(program: AnyNode, obj: AnyNode, warnings: string[])
   } else {
     const pv = pluginsProp.value as AnyNode;
     if (pv.type !== "ArrayExpression") {
-      warnings.push("`plugins` isn't an array literal — add cssSync() to it manually");
+      warnings.push("`plugins` isn't an array literal — add devSync() to it manually");
       return mutated;
     }
     pluginsArr = pv;
@@ -165,21 +165,21 @@ function ensureCssSyncPlugin(program: AnyNode, obj: AnyNode, warnings: string[])
     (el) =>
       el?.type === "CallExpression" &&
       (el.callee as AnyNode | undefined)?.type === "Identifier" &&
-      (el.callee as AnyNode).name === "cssSync",
+      (el.callee as AnyNode).name === "devSync",
   );
   if (!alreadyPlugin) {
-    elements.unshift(b.callExpression(b.identifier("cssSync"), []) as unknown as AnyNode);
+    elements.unshift(b.callExpression(b.identifier("devSync"), []) as unknown as AnyNode);
     mutated = true;
   }
 
   const body = program.body as AnyNode[];
   const hasImport = body.some(
-    (n) => n.type === "ImportDeclaration" && (n.source as AnyNode | undefined)?.value === CSS_SYNC_MODULE,
+    (n) => n.type === "ImportDeclaration" && (n.source as AnyNode | undefined)?.value === DEV_SYNC_MODULE,
   );
   if (!hasImport) {
     const decl = b.importDeclaration(
-      [b.importSpecifier(b.identifier("cssSync"))],
-      b.stringLiteral(CSS_SYNC_MODULE),
+      [b.importSpecifier(b.identifier("devSync"))],
+      b.stringLiteral(DEV_SYNC_MODULE),
     ) as unknown as AnyNode;
     let lastImport = -1;
     body.forEach((n, i) => {
@@ -270,7 +270,7 @@ export function transformViteConfig(source: string, plan: InitTransformPlan): Tr
   const warnings: string[] = [];
   let changed = false;
 
-  if (plan.cssSync) changed = ensureCssSyncPlugin(program, obj, warnings) || changed;
+  if (plan.devSync) changed = ensureDevSyncPlugin(program, obj, warnings) || changed;
 
   const entries: { name: string; node: AnyNode }[] = [];
   if (plan.emotion) {

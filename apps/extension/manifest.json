@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "CSS DevTools Sync",
   "version": "0.1.0",
-  "description": "Captures CSS/DOM edits made in Chrome DevTools and syncs them back to local source files via the apply engine embedded in your dev server (@css-sync/vite).",
+  "description": "Captures CSS/DOM edits made in Chrome DevTools and syncs them back to local source files via the apply engine embedded in your dev server (@dev-sync/vite).",
   "minimum_chrome_version": "120",
   "permissions": ["debugger", "storage"],
   "host_permissions": ["http://localhost/*", "http://127.0.0.1/*"],

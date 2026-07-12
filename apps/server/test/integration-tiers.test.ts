@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { SourceMapGenerator } from "source-map-js";
 import type { FastifyInstance } from "fastify";
-import type { CapturePayload, CapturePayloadInput } from "@css-sync/contract";
+import type { CapturePayload, CapturePayloadInput } from "@dev-sync/contract";
 import type { Config } from "../src/config.js";
 import { buildServer } from "../src/server.js";
 
@@ -17,7 +17,7 @@ import { buildServer } from "../src/server.js";
  * files. Every payload is re-POSTed a second time to prove the write is
  * idempotent (safe to retry) and never corrupts the file on a no-op re-sync.
  *
- * cfg.workspaceRoot below is exactly what CSS_SYNC_WORKSPACE_ROOT resolves to
+ * cfg.workspaceRoot below is exactly what DEV_SYNC_WORKSPACE_ROOT resolves to
  * at runtime (loadConfig() just realpath()s the env var into this same
  * field) — constructing Config directly, the same way server.test.ts does,
  * avoids mutating process.env across parallel test files while exercising
@@ -70,7 +70,7 @@ async function makeApp(workspaceRoot: string): Promise<FastifyInstance> {
     syncToken: undefined,
     overridesFile: "src/index.css",
     // Journal inside the temp workspace tree — cleaned in afterEach, never the real home.
-    journalDir: path.join(workspaceRoot, ".css-sync-journal"),
+    journalDir: path.join(workspaceRoot, ".dev-sync-journal"),
   };
   const app = await buildServer(cfg);
   apps.push(app);

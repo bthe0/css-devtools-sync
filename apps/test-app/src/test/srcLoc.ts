@@ -3,7 +3,7 @@
 // pollute the Elements panel); it defines a non-enumerable `__srcLoc` property
 // on the host node via a composed callback ref, exactly what the extension
 // reads over CDP (`$0.__srcLoc`). Tests assert against that same contract.
-import type { SrcLoc } from "@css-sync/babel-plugin-source-locator/runtime";
+import type { SrcLoc } from "@dev-sync/babel-plugin-source-locator/runtime";
 
 /** The `__srcLoc` the plugin's runtime stashed on a host node, if instrumented. */
 export function srcLoc(el: Element): SrcLoc | undefined {

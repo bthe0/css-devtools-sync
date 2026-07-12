@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import postcss from "postcss";
 import type { Declaration, Root, Rule } from "postcss";
-import type { InlineDeclaration, PromoteInlineStyleChange } from "@css-sync/contract";
+import type { InlineDeclaration, PromoteInlineStyleChange } from "@dev-sync/contract";
 import type { Config } from "./config.js";
 import { SkipChangeError } from "./errors.js";
 import { computeElementClassEdit } from "./classlist.js";

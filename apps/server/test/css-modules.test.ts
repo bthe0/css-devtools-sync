@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { SourceMapGenerator } from "source-map-js";
-import type { StyleSheetRef } from "@css-sync/contract";
+import type { StyleSheetRef } from "@dev-sync/contract";
 import { applyCssChange } from "../src/apply-css.js";
 import { cssSyntaxForFile, resolveTargetForChange } from "../src/resolve.js";
 import { SkipChangeError } from "../src/errors.js";

@@ -2,7 +2,7 @@
  * Public engine surface for embedding the apply pipeline inside another dev
  * server (bundler plugins) instead of running the standalone Fastify server.
  * Everything here is Fastify-decoupled: pure functions plus a connect-style
- * middleware. Import via `@css-sync/server/engine`.
+ * middleware. Import via `@dev-sync/server/engine`.
  */
 export { applyPayload, describeTemplate } from "./apply.js";
 export { verifyChecks } from "./verify.js";

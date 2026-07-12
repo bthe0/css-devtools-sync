@@ -1,4 +1,4 @@
-// detect.ts — `css-sync init` stack detection (pure, read-only).
+// detect.ts — `dev-sync init` stack detection (pure, read-only).
 //
 // Reads a target repo's package.json + vite.config.* and reports what init can
 // wire up. init is Vite-based: bundler is "vite" when a vite config file exists,
@@ -7,11 +7,11 @@
 //
 // Frameworks split into two buckets (see FRAMEWORK_MARKERS):
 //   - BUILD-OWNING (Next/Nuxt/Astro/SvelteKit/Remix/SolidStart): own their build
-//     + config, css-sync can't drive them — reported via `framework` with
+//     + config, dev-sync can't drive them — reported via `framework` with
 //     `frameworkOwnsBuild=true` and skipped by init.
 //   - VITE-PLUGIN (Vue/Svelte/Qwik): plain Vite apps with a user-editable
 //     vite.config plugins array — reported via `framework` with
-//     `frameworkOwnsBuild=false`; init inserts cssSync() like it does for React.
+//     `frameworkOwnsBuild=false`; init inserts devSync() like it does for React.
 //
 // Everything here tolerates missing/malformed inputs — detection never throws;
 // a repo we can't read cleanly just reports less, and init decides what to do.

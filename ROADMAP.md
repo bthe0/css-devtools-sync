@@ -55,7 +55,7 @@ Every edit returns a diff; source only changes on explicit confirm.
 
 ### 1b. Undo / write journal
 - **Server**: append-only JSONL journal in a state dir *outside* the workspace jail
-  (`~/.css-sync/journal/<workspace-hash>.jsonl`): `{id, ts, file, beforeSha, before,
+  (`~/.dev-sync/journal/<workspace-hash>.jsonl`): `{id, ts, file, beforeSha, before,
   after}`. Cap entries + total bytes (rotate).
 - New routes: `POST /undo` (last, or `{id}`), `GET /journal` (recent N).
 - **Extension**: "Undo last sync" + a session history list.
@@ -105,8 +105,8 @@ reason. **Effort:** M. **Depends:** 1c.
 
 A hand-started server on :7777 is adoption friction.
 
-- New package `@css-sync/vite-plugin`: boots the Fastify app as Vite dev-server
-  middleware (in-process, dev-only), auto-sets `CSS_SYNC_WORKSPACE_ROOT` to the Vite
+- New package `@dev-sync/vite-plugin`: boots the Fastify app as Vite dev-server
+  middleware (in-process, dev-only), auto-sets `DEV_SYNC_WORKSPACE_ROOT` to the Vite
   root, tears down on exit. No extra terminal, no port to remember.
 - Next.js: a plugin/`instrumentation` hook that does the same under `next dev`.
 - Keep the standalone server for non-Vite setups (webpack, Astro) — the plugin is the
@@ -145,7 +145,7 @@ to benchmark).
   machine — a genuine selling point).
 - **Firefox**: MV3 build; `webextension-polyfill` for the `chrome.*` surface; a second
   listing.
-- **`create-css-sync`**: scaffolder that installs the framework plugin (Phase 3) + prints
+- **`create-dev-sync`**: scaffolder that installs the framework plugin (Phase 3) + prints
   the extension install link. The npm package + plugin is the real install story; the
   extension is just the UI.
 

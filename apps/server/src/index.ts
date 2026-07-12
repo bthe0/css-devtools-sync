@@ -6,7 +6,7 @@ try {
   const app = await startServer(cfg);
   app.log.info(
     { port: cfg.port, appEnv: cfg.appEnv, llmPlacement: cfg.appEnv !== "production" && Boolean(cfg.anthropicApiKey) },
-    "css-sync server listening on 127.0.0.1",
+    "dev-sync server listening on 127.0.0.1",
   );
 
   for (const signal of ["SIGINT", "SIGTERM"] as const) {

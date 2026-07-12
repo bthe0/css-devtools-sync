@@ -5,7 +5,7 @@ import {
   CapturePayloadSchema,
   DescribeTemplateRequestSchema,
   VerifyRequestSchema,
-} from "@css-sync/contract";
+} from "@dev-sync/contract";
 import type { Config } from "./config.js";
 import { applyPayload, describeTemplate } from "./apply.js";
 import { SkipChangeError } from "./errors.js";

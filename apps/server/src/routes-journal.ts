@@ -1,5 +1,5 @@
 import type { FastifyInstance, preHandlerHookHandler } from "fastify";
-import { JournalListSchema, UndoRequestSchema, UndoResultSchema } from "@css-sync/contract";
+import { JournalListSchema, UndoRequestSchema, UndoResultSchema } from "@dev-sync/contract";
 import { readJournal, undo, type JournalConfig } from "./journal.js";
 
 const DEFAULT_LIMIT = 50;

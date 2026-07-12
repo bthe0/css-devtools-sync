@@ -4,7 +4,7 @@ import path from "node:path";
 /**
  * Client-caused path error. The server error handler maps this to HTTP 400.
  * SECURITY: every filesystem read/write the server performs funnels through
- * jailResolve() below — no write can escape CSS_SYNC_WORKSPACE_ROOT.
+ * jailResolve() below — no write can escape DEV_SYNC_WORKSPACE_ROOT.
  */
 export class WorkspaceError extends Error {
   readonly statusCode = 400;

@@ -9,7 +9,7 @@
 //
 // The "Source Sync" panel (panel.html/panel.js) is registered below and reads
 // this context's pending-changes map over a SEPARATE port
-// ("css-sync-preview") — it never re-attaches its own chrome.debugger session
+// ("dev-sync-preview") — it never re-attaches its own chrome.debugger session
 // (that would steal this one; sessions are keyed by tabId). While the panel is
 // open, autosave here pauses (captured edits still accumulate) so the user can
 // preview/apply/discard instead of edits silently auto-committing underneath
@@ -28,10 +28,10 @@ import {
 } from "./background/diff.js";
 
 // The apply engine is mounted on the inspected page's OWN dev server under this
-// prefix (Vite `server.middlewares.use("/__css-sync", …)`), so requests are
+// prefix (Vite `server.middlewares.use("/__dev-sync", …)`), so requests are
 // same-origin — no separate port, no CORS. Resolve the origin per-call so it
 // stays correct across in-page navigations.
-const MOUNT_PREFIX = "/__css-sync";
+const MOUNT_PREFIX = "/__dev-sync";
 const tabId = chrome.devtools.inspectedWindow.tabId;
 
 /** Resolve the inspected page's origin via the DevTools eval bridge. */
@@ -116,7 +116,7 @@ let pausedForPanel = false;
 // Autosave preference (shared with the toolbar popup via chrome.storage.local)
 // ---------------------------------------------------------------------------
 
-const AUTOSAVE_KEY = "css-sync:autosave";
+const AUTOSAVE_KEY = "dev-sync:autosave";
 const AUTOSAVE_DEBOUNCE_MS = 700;
 let autosave = true; // default ON (overwritten by the stored pref on load)
 let autosaveTimer = null;
@@ -173,7 +173,7 @@ function toastRaw(text, kind /* "info" | "warn" */) {
 /**
  * Mirrors the current pending-changes map (+ recent skips) to the service
  * worker, which relays it to any open Source Sync panel for this tab (see
- * "css-sync-preview" in background/service-worker.js). Called after every
+ * "dev-sync-preview" in background/service-worker.js). Called after every
  * mutation to `changes`/`skips` so the panel's read-only view stays live.
  */
 function postPendingSnapshot() {
@@ -207,7 +207,7 @@ let reconnectAttempts = 0;
 const MAX_RECONNECT = 6;
 
 function connectPort() {
-  port = chrome.runtime.connect({ name: "css-sync-panel" });
+  port = chrome.runtime.connect({ name: "dev-sync-panel" });
 
   port.onMessage.addListener((msg) => {
     switch (msg.type) {
@@ -219,13 +219,13 @@ function connectPort() {
       case "attach-failed":
         attached = false;
         // Most common cause: another chrome.debugger extension already attached.
-        console.warn(`[css-sync] could not attach debugger: ${msg.message}`);
+        console.warn(`[dev-sync] could not attach debugger: ${msg.message}`);
         toastRaw(`CSS Sync: could not attach — ${msg.message}`, "warn");
         break;
 
       case "detached":
         attached = false;
-        console.warn(`[css-sync] debugger detached (${msg.reason})`);
+        console.warn(`[dev-sync] debugger detached (${msg.reason})`);
         break;
 
       case "change":
@@ -238,7 +238,7 @@ function connectPort() {
         break;
 
       case "cdp-error":
-        console.warn(`[css-sync] CDP error (${msg.context}): ${msg.message}`);
+        console.warn(`[dev-sync] CDP error (${msg.context}): ${msg.message}`);
         break;
 
       case "skip":
@@ -282,7 +282,7 @@ function connectPort() {
     // If DevTools is closing, this whole context is torn down and the timer
     // below never fires — so reconnect only actually runs on a SW restart.
     if (reconnectAttempts >= MAX_RECONNECT) {
-      console.warn("[css-sync] service worker unreachable; giving up reconnecting.");
+      console.warn("[dev-sync] service worker unreachable; giving up reconnecting.");
       toastRaw("CSS Sync: capture stopped — reload the page's DevTools to resume.", "warn");
       return;
     }
@@ -322,7 +322,7 @@ const SELECTION_EVAL = `(() => {
 function onSelectionChanged() {
   chrome.devtools.inspectedWindow.eval(SELECTION_EVAL, (result, exceptionInfo) => {
     if (exceptionInfo && (exceptionInfo.isError || exceptionInfo.isException)) {
-      console.warn("[css-sync] could not read selected element:", exceptionInfo);
+      console.warn("[dev-sync] could not read selected element:", exceptionInfo);
       return;
     }
     // Remember the selection so CSS-poller changes can carry it (Tailwind
@@ -509,7 +509,7 @@ function pollCss() {
           try {
             sheetChanges = diffSheet(ref, prev, sheet.rulesText);
           } catch (e) {
-            console.warn("[css-sync] diff failed for", sheet.key, e);
+            console.warn("[dev-sync] diff failed for", sheet.key, e);
             continue;
           }
           for (const change of sheetChanges) {
@@ -910,7 +910,7 @@ async function syncToSource(opts = {}) {
   syncing = true;
 
   try {
-    /** @type {import("@css-sync/contract").CapturePayload} */
+    /** @type {import("@dev-sync/contract").CapturePayload} */
     const payload = {
       url: await getInspectedUrl(),
       changes: [...changes.values()],
@@ -925,7 +925,7 @@ async function syncToSource(opts = {}) {
     try {
       base = await syncBase();
     } catch {
-      console.warn("[css-sync] could not resolve inspected page origin");
+      console.warn("[dev-sync] could not resolve inspected page origin");
       toastRaw("CSS Sync: could not resolve page origin", "warn");
       return;
     }
@@ -937,18 +937,18 @@ async function syncToSource(opts = {}) {
         body: JSON.stringify(payload),
       });
     } catch {
-      console.warn(`[css-sync] sync engine unreachable at ${base}`);
+      console.warn(`[dev-sync] sync engine unreachable at ${base}`);
       toastRaw(`CSS Sync: engine unreachable at ${base}`, "warn");
       return;
     }
     if (!res.ok) {
       const body = await res.text().catch(() => "");
-      console.warn(`[css-sync] server error ${res.status}: ${body.slice(0, 300)}`);
+      console.warn(`[dev-sync] server error ${res.status}: ${body.slice(0, 300)}`);
       toastRaw(`CSS Sync: server error ${res.status}`, "warn");
       return;
     }
 
-    /** @type {import("@css-sync/contract").ApplyResult} */
+    /** @type {import("@dev-sync/contract").ApplyResult} */
     const result = await res.json();
     if (
       !result ||
@@ -956,7 +956,7 @@ async function syncToSource(opts = {}) {
       !Array.isArray(result.skipped) ||
       !Array.isArray(result.needsPlacement)
     ) {
-      console.warn("[css-sync] server returned a malformed ApplyResult");
+      console.warn("[dev-sync] server returned a malformed ApplyResult");
       toastRaw("CSS Sync: malformed server response", "warn");
       return;
     }

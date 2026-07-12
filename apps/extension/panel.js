@@ -6,14 +6,14 @@
 // steal its CDP session (sessions are keyed by tabId in
 // background/service-worker.js), and CSS.styleSheetChanged never fires for a
 // non-editing session anyway. Instead this panel:
-//   - opens a SEPARATE port ("css-sync-preview") that mirrors devtools.js's
+//   - opens a SEPARATE port ("dev-sync-preview") that mirrors devtools.js's
 //     pending-changes map read-only (relayed by the service worker),
 //   - tells devtools.js (via the service worker) to pause its autosave while
 //     this panel is open, so the user gets a chance to preview before
 //     anything is written, and to resume it on close,
 //   - drives the two-phase preview/commit flow and the undo/journal history
 //     purely over plain fetch to the apply engine embedded in the page's own
-//     dev server (same-origin, under /__css-sync).
+//     dev server (same-origin, under /__dev-sync).
 //
 // The old "Verify" feature (re-reading computed styles over the CDP session)
 // is intentionally dropped: it required this panel's own attach, which this
@@ -23,10 +23,10 @@
 "use strict";
 
 // The apply engine is mounted on the inspected page's OWN dev server under this
-// prefix (Vite `server.middlewares.use("/__css-sync", …)`), so requests are
+// prefix (Vite `server.middlewares.use("/__dev-sync", …)`), so requests are
 // same-origin — no separate port, no CORS. Resolve the origin per-call so it
 // stays correct across in-page navigations.
-const MOUNT_PREFIX = "/__css-sync";
+const MOUNT_PREFIX = "/__dev-sync";
 const tabId = chrome.devtools.inspectedWindow.tabId;
 
 // ---------------------------------------------------------------------------
@@ -85,7 +85,7 @@ const journalRefreshBtn = $("journal-refresh-btn");
 // Autosave settings (persisted in chrome.storage.local; shared with devtools.js)
 // ---------------------------------------------------------------------------
 
-const AUTOSAVE_KEY = "css-sync:autosave";
+const AUTOSAVE_KEY = "dev-sync:autosave";
 let autosave = true; // default ON (overwritten by stored pref on load)
 
 const IS_MAC = navigator.platform.toUpperCase().includes("MAC");
@@ -139,7 +139,7 @@ shortcutLink.addEventListener("click", (e) => {
 });
 
 // ---------------------------------------------------------------------------
-// Preview-mirror port ("css-sync-preview") — read-only relay to devtools.js
+// Preview-mirror port ("dev-sync-preview") — read-only relay to devtools.js
 // ---------------------------------------------------------------------------
 
 let previewPort = null;
@@ -147,7 +147,7 @@ let previewReconnectAttempts = 0;
 const MAX_PREVIEW_RECONNECT = 6;
 
 function connectPreviewPort() {
-  previewPort = chrome.runtime.connect({ name: "css-sync-preview" });
+  previewPort = chrome.runtime.connect({ name: "dev-sync-preview" });
 
   previewPort.onMessage.addListener((msg) => {
     switch (msg.type) {
@@ -411,7 +411,7 @@ function showBanner(text, kind /* "info" | "warn" | "error" */, retry) {
 
 function describeFetchError(err, action) {
   if (err instanceof TypeError) {
-    return `${action} failed: sync engine unreachable on the page's dev server. Add the @css-sync/vite plugin to your dev config.`;
+    return `${action} failed: sync engine unreachable on the page's dev server. Add the @dev-sync/vite plugin to your dev config.`;
   }
   return `${action} failed: ${err instanceof Error ? err.message : String(err)}`;
 }

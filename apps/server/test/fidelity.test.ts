@@ -11,7 +11,7 @@ import type {
   ModifyChange,
   SetAttrChange,
   StyleSheetRef,
-} from "@css-sync/contract";
+} from "@dev-sync/contract";
 import { applyCssChange } from "../src/apply-css.js";
 import { applyCssInJsChange } from "../src/cssinjs.js";
 import { applyJsxChange as applyJsxChangePure } from "../src/apply-jsx.js";

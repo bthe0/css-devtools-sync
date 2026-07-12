@@ -17,7 +17,7 @@ const syntaxJsx: unknown =
     : (syntaxJsxImport as { default?: unknown }).default;
 
 /** Bare specifier of the browser runtime whose `__srcLocRef` we inject. */
-const RUNTIME_SOURCE = "@css-sync/babel-plugin-source-locator/runtime";
+const RUNTIME_SOURCE = "@dev-sync/babel-plugin-source-locator/runtime";
 
 export interface SourceLocatorOptions {
   /** Project root; emitted file paths are relative to this. Defaults to process.cwd(). */

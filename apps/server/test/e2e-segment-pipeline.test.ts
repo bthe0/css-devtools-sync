@@ -47,7 +47,7 @@ function makeCfg(overrides: Partial<Config> = {}): Config {
     syncToken: undefined,
     overridesFile: "src/index.css",
     // Journal inside the temp tree — cleaned in afterEach, never the real home.
-    journalDir: path.join(root, ".css-sync-journal"),
+    journalDir: path.join(root, ".dev-sync-journal"),
     ...overrides,
   };
 }

@@ -1,5 +1,5 @@
 {
-  "name": "@css-sync/babel-plugin-source-locator",
+  "name": "@dev-sync/babel-plugin-source-locator",
   "version": "0.0.1",
   "description": "Dev-only Babel plugin that attaches JSX host-element source location as a non-attribute __srcLoc node property via a composed ref, plus a Vite wrapper and browser runtime",
   "type": "module",
@@ -33,7 +33,7 @@
     "@babel/plugin-syntax-jsx": "^7.25.0",
     "@babel/plugin-syntax-typescript": "^7.25.0",
     "@babel/types": "^7.29.7",
-    "@css-sync/contract": "workspace:*"
+    "@dev-sync/contract": "workspace:*"
   },
   "devDependencies": {
     "@types/babel__core": "^7.20.0",

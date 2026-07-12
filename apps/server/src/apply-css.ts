@@ -6,7 +6,7 @@ import type {
   AddRuleChange,
   DeleteDeclChange,
   ModifyChange,
-} from "@css-sync/contract";
+} from "@dev-sync/contract";
 import { SkipChangeError } from "./errors.js";
 import { assertCssValueSafe, assertStructuralCountUnchanged, assertExactMatch } from "./fidelity.js";
 

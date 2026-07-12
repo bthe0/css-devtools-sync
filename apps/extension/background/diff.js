@@ -16,7 +16,7 @@
 "use strict";
 
 // ---------------------------------------------------------------------------
-// Instrumentation attribute names (mirrors @css-sync/contract)
+// Instrumentation attribute names (mirrors @dev-sync/contract)
 // ---------------------------------------------------------------------------
 
 export const DATA_SOURCE_FILE = "data-source-file";
@@ -24,19 +24,19 @@ export const DATA_SOURCE_LINE = "data-source-line";
 export const DATA_SOURCE_COMPONENT = "data-source-component";
 /** Transient marker devtools.js writes on $0 to hand the selection to the
  * content script; adding/removing it must never be captured as a real edit. */
-export const CSS_SYNC_MARKER = "data-css-sync-inspected";
+export const DEV_SYNC_MARKER = "data-dev-sync-inspected";
 
 const IGNORED_ATTRS = new Set([
   DATA_SOURCE_FILE,
   DATA_SOURCE_LINE,
   DATA_SOURCE_COMPONENT,
-  CSS_SYNC_MARKER,
+  DEV_SYNC_MARKER,
 ]);
 
 /**
  * True for attributes the CDP engine must never turn into a set-attr/remove-attr
  * change: the three instrumentation attributes (framework/DevTools bookkeeping
- * churn) AND our own `data-css-sync-inspected` selection marker, which we
+ * churn) AND our own `data-dev-sync-inspected` selection marker, which we
  * add/remove on every Elements-panel selection change.
  */
 export function isSourceLocatorAttribute(name) {
@@ -373,7 +373,7 @@ export function elementContextFromAttributes(nodeName, attributesFlat) {
 
 /**
  * Build an ElementContext from a node's off-DOM source location — the
- * `__srcLoc` property attached by @css-sync/babel-plugin-source-locator's
+ * `__srcLoc` property attached by @dev-sync/babel-plugin-source-locator's
  * runtime ref (read via inspectedWindow.eval `$0.__srcLoc` or CDP
  * Runtime.callFunctionOn). `srcLoc` is `{dataSourceFile, dataSourceLine,
  * dataSourceComponent?}` or null; `classList` is an array of class names.

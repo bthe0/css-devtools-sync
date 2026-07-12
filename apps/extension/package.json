@@ -1,5 +1,5 @@
 {
-  "name": "@css-sync/extension",
+  "name": "@dev-sync/extension",
   "version": "0.0.1",
   "private": true,
   "description": "Chrome DevTools extension: CDP capture engine + Source Sync panel. Not published; loaded unpacked from apps/extension.",

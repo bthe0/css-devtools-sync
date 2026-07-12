@@ -1,4 +1,4 @@
-// init-detect.test.ts — `css-sync init` stack detection.
+// init-detect.test.ts — `dev-sync init` stack detection.
 //
 // detectStack reads a target repo (package.json + vite.config.*) and reports
 // what the init command can wire up: the bundler (Vite-only in v1), the

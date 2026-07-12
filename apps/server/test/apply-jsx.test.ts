@@ -10,7 +10,7 @@ import type {
   SetAttrChange,
   SetTextChange,
   SetTextSegmentChange,
-} from "@css-sync/contract";
+} from "@dev-sync/contract";
 import { applyJsxChange as applyJsxChangePure, describeJsxTemplate } from "../src/apply-jsx.js";
 
 /**

@@ -1,5 +1,5 @@
 import { transformAsync } from "@babel/core";
-import { DATA_SOURCE_FILE } from "@css-sync/contract";
+import { DATA_SOURCE_FILE } from "@dev-sync/contract";
 import { describe, expect, it } from "vitest";
 import sourceLocatorBabelPlugin from "./index.js";
 
@@ -16,7 +16,7 @@ function Card() {
 const Footer = () => <footer id="f" />;
 `;
 
-const RUNTIME = "@css-sync/babel-plugin-source-locator/runtime";
+const RUNTIME = "@dev-sync/babel-plugin-source-locator/runtime";
 
 const transform = async (code: string, opts: Record<string, unknown> = {}) => {
   const result = await transformAsync(code, {

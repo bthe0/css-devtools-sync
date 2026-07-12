@@ -4,7 +4,7 @@
 
 "use strict";
 
-const AUTOSAVE_KEY = "css-sync:autosave";
+const AUTOSAVE_KEY = "dev-sync:autosave";
 const IS_MAC = navigator.platform.toUpperCase().includes("MAC");
 
 const $ = (id) => document.getElementById(id);

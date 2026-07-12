@@ -1,5 +1,5 @@
 {
-  "name": "@css-sync/contract",
+  "name": "@dev-sync/contract",
   "version": "0.0.1",
   "description": "Wire protocol contract between the css-devtools-sync extension and server (Zod v4 schemas + TS types)",
   "type": "module",

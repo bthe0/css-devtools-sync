@@ -26,8 +26,8 @@ function makeCfg(overrides: Partial<Config> = {}): Config {
     syncToken: undefined,
     overridesFile: "src/index.css",
     // Keep the write journal inside the temp tree so commit-mode tests never
-    // pollute the real ~/.css-sync/journal; cleaned with `root` in afterEach.
-    journalDir: path.join(root, ".css-sync-journal"),
+    // pollute the real ~/.dev-sync/journal; cleaned with `root` in afterEach.
+    journalDir: path.join(root, ".dev-sync-journal"),
     ...overrides,
   };
 }

@@ -6,7 +6,7 @@
   "scripts": {
     "build": "pnpm -r build",
     "typecheck": "pnpm --filter \"./packages/*\" build && pnpm -r typecheck",
-    "dev": "pnpm --filter @css-sync/server dev",
+    "dev": "pnpm --filter @dev-sync/server dev",
     "test": "pnpm -r test"
   },
   "packageManager": "pnpm@10.12.1",

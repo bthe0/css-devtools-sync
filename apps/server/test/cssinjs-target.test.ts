@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyBaseLogger } from "fastify";
-import type { CapturePayloadInput, ModifyChange } from "@css-sync/contract";
+import type { CapturePayloadInput, ModifyChange } from "@dev-sync/contract";
 import type { Config } from "../src/config.js";
 import { SkipChangeError } from "../src/errors.js";
 import {
@@ -101,7 +101,7 @@ function makeCfg(workspaceRoot: string): Config {
     syncToken: undefined,
     overridesFile: "src/index.css",
     // Journal inside the temp workspace tree — cleaned in afterEach, never the real home.
-    journalDir: path.join(workspaceRoot, ".css-sync-journal"),
+    journalDir: path.join(workspaceRoot, ".dev-sync-journal"),
   };
 }
 

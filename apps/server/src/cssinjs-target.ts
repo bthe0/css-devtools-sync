@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import type { FastifyBaseLogger } from "fastify";
-import type { AddDeclChange, Confidence, DeleteDeclChange, ModifyChange } from "@css-sync/contract";
+import type { AddDeclChange, Confidence, DeleteDeclChange, ModifyChange } from "@dev-sync/contract";
 import type { Config } from "./config.js";
 import { SkipChangeError } from "./errors.js";
 import { listTemplates, type TemplateInfo } from "./cssinjs.js";

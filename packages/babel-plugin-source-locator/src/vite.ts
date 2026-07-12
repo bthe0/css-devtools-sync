@@ -13,7 +13,7 @@ export function sourceLocator(options: SourceLocatorOptions = {}): Plugin {
   let root = options.root ?? process.cwd();
 
   return {
-    name: "css-sync:source-locator",
+    name: "dev-sync:source-locator",
     apply: "serve",
     enforce: "pre",
     configResolved(config) {

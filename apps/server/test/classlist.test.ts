@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { AddDeclChange, ElementContext, ModifyChange } from "@css-sync/contract";
+import type { AddDeclChange, ElementContext, ModifyChange } from "@dev-sync/contract";
 import { applyClassListChange } from "../src/classlist.js";
 import { SkipChangeError } from "../src/errors.js";
 

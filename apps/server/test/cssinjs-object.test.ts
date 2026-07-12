@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AddDeclChange, DeleteDeclChange, ModifyChange, StyleSheetRef } from "@css-sync/contract";
+import type { AddDeclChange, DeleteDeclChange, ModifyChange, StyleSheetRef } from "@dev-sync/contract";
 import { applyCssInJsChange } from "../src/cssinjs.js";
 import { SkipChangeError } from "../src/errors.js";
 
