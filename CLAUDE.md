@@ -65,4 +65,4 @@ pnpm --filter @dev-sync/test-app dev
 - Match surrounding style; edit existing files over adding new ones.
 - Tests are the contract — add a failing test before fixing a bug, keep the suite green.
 - Before a new lib: check it's already a workspace dep and pinned; ESM only.
-- `PLAN.md` tracks honest per-tier status + remaining work (Next.js/Turbopack gap is P3).
+- Per-tier apply status lives in the tests; the Next.js/Turbopack transport is the known gap (unimplemented).

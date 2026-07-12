@@ -21,6 +21,8 @@ Plain CSS · Sass modules · Emotion/styled css-in-js · Tailwind class lists �
 
 ---
 
+> **🤖 Setting this up with an AI agent?** Point it at **[`README_LLM.md`](./README_LLM.md)** — a step-by-step setup runbook written for LLMs (verify toolchain → install/build/test → pick the write-jail root → load the extension). It stops to ask you where to run and before touching your browser.
+
 ## What it does
 
 You tweak `border-radius` on a rule in the DevTools **Styles** panel. `dev-sync` figures out which source construct produced that rule — a `.css` file, a compiled `.module.scss`, an Emotion template literal, or a Tailwind utility in a `className` — and writes the edit **back into that source**. Vite HMR reloads, and the change now comes from your code, not a runtime override.
@@ -77,7 +79,7 @@ apps/
   extension/                     Chrome MV3 DevTools extension (plain JS, loaded unpacked)
 ```
 
-`@dev-sync/contract` is the single source of truth for the extension ⇄ server protocol. See [PLAN.md](./PLAN.md) for honest per-tier status.
+`@dev-sync/contract` is the single source of truth for the extension ⇄ server protocol.
 
 ## Framework support
 
@@ -88,7 +90,7 @@ The `devSync()` plugin works on any Vite app. Frameworks split two ways:
 | **Vite-plugin** (editable `plugins` array) | Vue, Svelte, Qwik, plain React+Vite | onboarded — `devSync()` added to your config |
 | **Build-owning** (own their config/build) | Next.js, Nuxt, Astro, SvelteKit, Remix, SolidStart | detected & skipped with a note (they need their own integration) |
 
-> **Next.js note:** Next runs its own dev server and defaults to Turbopack, so a webpack-plugin transport does not attach — Next support is tracked separately (see PLAN.md P3).
+> **Next.js note:** Next runs its own dev server and defaults to Turbopack, so a webpack-plugin transport does not attach — Next support is tracked separately.
 
 ## What edits map where (per tier)
 
