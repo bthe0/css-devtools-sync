@@ -8,17 +8,17 @@
 // read from the page's main world by the devtools client via
 // inspectedWindow.eval / CDP.
 //
-// The content script is injected into EVERY localhost tab (manifest matches),
-// but the HUD only materializes for the tab that has the DevTools panel open:
-// it is built lazily on the first message from the service worker (which only
-// targets the inspected tab) and torn down when DevTools disconnects. Idle
-// localhost tabs never render it.
+// The content script is injected into every localhost tab (manifest matches
+// keep it off non-dev sites) and renders a PERSISTENT HUD: it's always visible
+// on the page, idle until a DevTools session for this tab connects. Only the
+// CDP attach is scoped to the inspected tab (see devtools.js isDevHost) — the
+// HUD itself is a passive, always-on indicator.
 //
 // Messages arrive from the service worker (relayed from the DevTools client):
 //   dev-sync:status   { state: "green" | "yellow" | "red" | "idle" }
-//   dev-sync:message  { text, kind: "info" | "warn" }
+//   dev-sync:message  { text, kind: "success" | "info" | "warn" }
 //   dev-sync:pending  { count }
-//   dev-sync:teardown {}  — DevTools closed for this tab; remove the HUD
+//   dev-sync:teardown {}  — DevTools closed; return the HUD to idle (kept on page)
 // The autosave slider is owned here and mirrored through chrome.storage.local
 // (shared with the popup + DevTools panel).
 
@@ -69,7 +69,7 @@ function buildHud() {
     }
     .bar {
       display:flex; align-items:center; gap:10px;
-      padding:9px 11px; background:#20233340; border-bottom:1px solid #2c3145;
+      padding:9px 11px; background:#20233340;
     }
     .badge {
       flex:0 0 auto; width:22px; height:22px; border-radius:50%;
@@ -78,7 +78,11 @@ function buildHud() {
     }
     .badge svg { width:13px; height:13px; display:block; }
     .title { flex:1 1 auto; font-weight:600; letter-spacing:.01em; }
-    .title small { display:block; font-weight:400; font-size:11px; color:#9aa1b3; }
+    /* Status message row under the settings bar. Color set inline per state. */
+    .status {
+      padding:7px 12px 9px; font-size:11.5px; color:#9aa1b3;
+      border-top:1px solid #2c3145; transition:color .25s ease;
+    }
     /* Autosave switch (role=switch) */
     .sw {
       flex:0 0 auto; position:relative; width:38px; height:22px; border-radius:11px;
@@ -92,7 +96,11 @@ function buildHud() {
     }
     .sw[aria-checked="true"]::after { transform:translateX(16px); }
     .sw:focus-visible { outline:2px solid #93c5fd; outline-offset:2px; }
-    .feed { list-style:none; margin:0; padding:6px; display:flex; flex-direction:column; gap:5px; }
+    /* Feed sits ABOVE the bar so activity toasts stack up over the widget. */
+    .feed {
+      list-style:none; margin:0; padding:6px; display:flex; flex-direction:column;
+      gap:5px; border-bottom:1px solid #2c3145;
+    }
     .feed:empty { display:none; }
     .line {
       display:flex; align-items:flex-start; gap:7px; padding:6px 8px;
@@ -101,12 +109,14 @@ function buildHud() {
     }
     .line.show { opacity:1; transform:none; }
     .line.warn { border-left-color:#f59e0b; }
+    .line.success { border-left-color:#22c55e; background:#1e2a26; }
     .line.pending { border-left-color:#f59e0b; background:#2a2438; }
     .line .ic { flex:0 0 auto; font-weight:700; color:#3b82f6; }
     .line.warn .ic, .line.pending .ic { color:#f59e0b; }
+    .line.success .ic { color:#22c55e; }
     .line .msg { word-break:break-word; }
     @media (prefers-reduced-motion: reduce) {
-      .badge,.sw,.sw::after,.line { transition:none; }
+      .badge,.sw,.sw::after,.line,.status { transition:none; }
       .line { opacity:1; transform:none; }
     }`;
   root.appendChild(style);
@@ -131,11 +141,7 @@ function buildHud() {
 
   const title = document.createElement("div");
   title.className = "title";
-  const titleName = document.createElement("span");
-  titleName.textContent = "dev-sync";
-  const titleSub = document.createElement("small");
-  titleSub.textContent = STATUS_LABEL.idle;
-  title.append(titleName, titleSub);
+  title.textContent = "dev-sync";
 
   const switchEl = document.createElement("button");
   switchEl.className = "sw";
@@ -155,10 +161,20 @@ function buildHud() {
   feed.setAttribute("aria-live", "polite");
   feed.setAttribute("aria-label", "dev-sync activity");
 
-  frame.append(bar, feed);
+  // Status message: its own row UNDER the settings bar, tinted to match the
+  // circle (green/yellow/red), muted when idle.
+  const statusEl = document.createElement("div");
+  statusEl.className = "status";
+  statusEl.setAttribute("role", "status");
+  statusEl.setAttribute("aria-live", "polite");
+  statusEl.textContent = STATUS_LABEL.idle;
+
+  // Bottom-right anchored: feed toasts stack up on top, then the settings bar,
+  // then the persistent status message beneath it.
+  frame.append(feed, bar, statusEl);
   root.appendChild(frame);
 
-  hud = { root, badge, feed, switchEl, titleSub };
+  hud = { root, badge, feed, switchEl, statusEl };
   return hud;
 }
 
@@ -168,13 +184,16 @@ function setStatus(state) {
   h.badge.style.background = STATUS_COLOR[s];
   h.badge.setAttribute("aria-label", STATUS_LABEL[s]);
   h.badge.title = STATUS_LABEL[s];
-  h.titleSub.textContent = STATUS_LABEL[s];
+  h.statusEl.textContent = STATUS_LABEL[s];
+  h.statusEl.style.color = s === "idle" ? "#9aa1b3" : STATUS_COLOR[s];
 }
 
 function pushMessage(text, kind) {
   const h = buildHud();
   const li = document.createElement("li");
-  li.className = `line ${kind === "warn" ? "warn" : ""}`;
+  // "success" (autosave confirmations) → green ✓; "warn" → amber !; else blue ✓.
+  const cls = kind === "warn" ? "warn" : kind === "success" ? "success" : "";
+  li.className = `line ${cls}`;
   const ic = document.createElement("span");
   ic.className = "ic";
   ic.textContent = kind === "warn" ? "!" : "✓";
@@ -227,19 +246,20 @@ function setPending(count) {
   requestAnimationFrame(() => line.classList.add("show"));
 }
 
-// Remove the HUD (DevTools closed for this tab). Safe to call when absent.
-function destroyHud() {
-  document.getElementById(HOST_ID)?.remove();
-  hud = null;
+// DevTools closed for this tab: the HUD is PERSISTENT, so don't remove it —
+// just drop back to the idle badge and clear any stale pending count.
+function resetToIdle() {
+  setStatus("idle");
+  setPending(0);
 }
 
-// Track the stored pref; reflect it onto the switch only if the HUD exists
-// (never force-build — an idle tab must not grow a HUD from a storage echo).
+// Track the stored pref and reflect it onto the switch. The HUD is always
+// present (built eagerly at load), so this can update it directly.
 function reflectAutosave(on) {
   autosavePref = on;
-  if (!hud) return;
-  hud.switchEl.setAttribute("aria-checked", on ? "true" : "false");
-  hud.switchEl.title = on ? "Autosave on" : "Autosave off";
+  const h = buildHud();
+  h.switchEl.setAttribute("aria-checked", on ? "true" : "false");
+  h.switchEl.title = on ? "Autosave on" : "Autosave off";
 }
 
 // Seed the switch from the stored pref (default ON), then track changes.
@@ -255,9 +275,9 @@ chrome.storage.onChanged.addListener((changed, area) => {
 
 chrome.runtime.onMessage.addListener((msg) => {
   if (!msg) return;
-  // Any of these is a signal from the DevTools session for THIS tab, so it's
-  // the moment to lazily materialize the HUD (setStatus/pushMessage/setPending
-  // all call buildHud()). Teardown removes it when DevTools closes.
+  // Signals from the DevTools session for THIS tab. The HUD is already on the
+  // page (built eagerly below); these just update it. Teardown returns it to
+  // idle when DevTools closes — the widget stays put.
   if (msg.type === "dev-sync:message" && typeof msg.text === "string") {
     pushMessage(msg.text, msg.kind);
   } else if (msg.type === "dev-sync:status") {
@@ -265,6 +285,20 @@ chrome.runtime.onMessage.addListener((msg) => {
   } else if (msg.type === "dev-sync:pending") {
     setPending(Number(msg.count) || 0);
   } else if (msg.type === "dev-sync:teardown") {
-    destroyHud();
+    resetToIdle();
   }
+});
+
+// Build the HUD immediately so it's a persistent fixture on every localhost dev
+// page (manifest matches keep it off non-dev sites). It sits idle until a
+// DevTools session for this tab sends a status/message.
+buildHud();
+
+// On (re)mount — including after an HMR/page reload, where devtools.js survives
+// but this content script re-injects a fresh idle HUD — PULL the current state
+// from the DevTools session (relayed via the service worker). devtools.js can't
+// time this remount to push, so we ask on our own mount. No-op if DevTools isn't
+// open for this tab; the HUD then correctly stays idle.
+chrome.runtime.sendMessage({ type: "dev-sync:hud-ready" }, () => {
+  void chrome.runtime.lastError; // no SW listener / no session — stay idle
 });

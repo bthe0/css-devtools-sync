@@ -182,19 +182,17 @@ async function startSession(tabId, port) {
   };
   sessions.set(tabId, session);
 
-  await debuggerAttach(tabId);
-  session.attached = true;
-
-  // Order matters: DOM before CSS (CSS domain depends on DOM).
-  await cdp(tabId, "Page.enable");
-  await cdp(tabId, "DOM.enable");
-  // Full-depth walk so text nodes are already indexed (characterDataModified
-  // gives us only a nodeId + the new value — we need the tree to resolve its
-  // parent element and its prior text for the diff).
-  const { root } = await cdp(tabId, "DOM.getDocument", { depth: -1, pierce: false });
-  indexNode(root, null, session.domNodes);
-  await cdp(tabId, "CSS.enable"); // fires CSS.styleSheetAdded for every existing sheet
-
+  // NO CDP attach. Every capture tier (CSS, set-text, set-attr, Tailwind,
+  // Emotion, styled-components, inline-promote, text-segment) now runs as an
+  // inspectedWindow.eval poller in devtools.js reading the page's REAL live
+  // DOM/CSSOM and POSTing straight to the dev server's apply engine — the CDP
+  // session never sees the user's edits (the original cross-session capture bug)
+  // and its DOM/attr/char-data handlers are already neutered. Attaching only cost
+  // Chrome's intrusive "started inspecting this browser" banner (browser-wide, on
+  // every tab) for a session nothing on the live path consumes. So we keep just
+  // the session record — postToPanel relays status/toast/pending over its port —
+  // and skip the attach entirely. `attached` stays false: stopSession then never
+  // detaches, and the (unused) get-computed path stays inert.
   return session;
 }
 
@@ -232,6 +230,55 @@ function tearDownHud(tabId) {
   chrome.tabs.sendMessage(tabId, { type: "dev-sync:teardown" }, () => {
     void chrome.runtime.lastError;
   });
+}
+
+// A content script (re)mounted its HUD — e.g. after an HMR/page reload, which
+// re-injects a fresh idle HUD while devtools.js keeps running with a stale
+// status latch. The content script PULLS (it knows when it mounts; a push from
+// devtools.js races the injection), so relay the request to the tab's DevTools
+// session, which re-asserts status + pending. No-op if no session (DevTools not
+// open for this tab) — the HUD then correctly stays idle.
+chrome.runtime.onMessage.addListener((msg, sender) => {
+  if (msg?.type === "dev-sync:hud-ready" && sender.tab?.id != null) {
+    postToPanel(sender.tab.id, { type: "resync" });
+  }
+});
+
+/** The tab's url, or "" if hidden (no host_permissions match) / unavailable. */
+function tabUrl(tabId) {
+  return new Promise((resolve) => {
+    chrome.tabs.get(tabId, (tab) => {
+      void chrome.runtime.lastError; // tab gone → resolve empty
+      resolve(tab && typeof tab.url === "string" ? tab.url : "");
+    });
+  });
+}
+
+// Resolve the tab's url, retrying while it reads back empty. On a cold service
+// worker (just after an extension reload) chrome.tabs.get can transiently
+// return no url even for a localhost tab that host_permissions covers — a
+// premature "" there yields a FALSE not-dev-host and the badge never leaves
+// idle. Retry a few times before trusting an empty result.
+async function resolveTabUrl(tabId, tries = 4, gapMs = 150) {
+  for (let i = 0; i < tries; i++) {
+    const url = await tabUrl(tabId);
+    if (url) return url;
+    if (i < tries - 1) await new Promise((r) => setTimeout(r, gapMs));
+  }
+  return "";
+}
+
+/** True only for http(s) localhost / 127.0.0.1 — where the apply engine lives. */
+function isDevTabUrl(url) {
+  try {
+    const u = new URL(url);
+    return (
+      (u.protocol === "http:" || u.protocol === "https:") &&
+      (u.hostname === "localhost" || u.hostname === "127.0.0.1")
+    );
+  } catch {
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -473,6 +520,15 @@ chrome.runtime.onConnect.addListener((port) => {
     switch (msg.type) {
       case "attach": {
         tabId = msg.tabId;
+        // Gate on the tab's REAL url (not an inspectedWindow.eval that races page
+        // load). chrome.tabs.get only exposes the url for tabs matching
+        // host_permissions (localhost/127.0.0.1), so a non-dev tab reads back
+        // empty → we skip the session and reply not-dev-host, leaving the HUD
+        // idle instead of spinning a pointless health poll on a non-dev origin.
+        if (!isDevTabUrl(await resolveTabUrl(tabId))) {
+          port.postMessage({ type: "not-dev-host" });
+          break;
+        }
         try {
           if (sessions.has(tabId)) await stopSession(tabId); // stale session
           await startSession(tabId, port);

@@ -28,6 +28,7 @@ function mount(storedAutosave) {
   const { window } = dom;
   const msgFns = [];
   const changedFns = [];
+  const sent = [];
   const store = {};
   if (storedAutosave !== undefined) store["dev-sync:autosave"] = storedAutosave;
 
@@ -44,7 +45,13 @@ function mount(storedAutosave) {
       },
       onChanged: { addListener: (fn) => changedFns.push(fn) },
     },
-    runtime: { onMessage: { addListener: (fn) => msgFns.push(fn) } },
+    runtime: {
+      onMessage: { addListener: (fn) => msgFns.push(fn) },
+      sendMessage: (m, cb) => {
+        sent.push(m);
+        if (cb) cb();
+      },
+    },
   };
 
   // Execute the content script in the window realm so bare `chrome`/`document`
@@ -55,24 +62,15 @@ function mount(storedAutosave) {
 
   const emit = (m) => msgFns.forEach((fn) => fn(m));
   const shadow = () => window.document.getElementById("dev-sync-hud-host").shadowRoot;
-  return { window, emit, shadow, store };
+  return { window, emit, shadow, store, sent };
 }
 
 const bg = (shadow) => shadow().querySelector(".badge").style.background;
 const host = (window) => window.document.getElementById("dev-sync-hud-host");
 
-test("HUD does NOT mount until a message arrives (idle localhost tabs stay clean)", () => {
-  const { window, emit } = mount();
-  assert.equal(host(window), null, "no HUD on load");
-  emit({ type: "dev-sync:status", state: "green" });
-  assert.ok(host(window), "HUD materializes on first message");
-});
-
-test("HUD mounts a shadow-DOM host with bar + feed, badge untouched by a plain message", () => {
-  const { window, emit, shadow } = mount();
-  // A non-status message materializes the HUD without painting the badge.
-  emit({ type: "dev-sync:message", text: "hello", kind: "info" });
-  assert.ok(host(window), "host element present");
+test("HUD is a persistent fixture — mounts eagerly on load, no message needed", () => {
+  const { window, shadow } = mount();
+  assert.ok(host(window), "host element present at load");
   assert.ok(shadow().querySelector(".hud"), "frame rendered");
   assert.ok(shadow().querySelector(".bar"), "bar rendered");
   assert.ok(shadow().querySelector(".feed"), "feed rendered");
@@ -82,15 +80,30 @@ test("HUD mounts a shadow-DOM host with bar + feed, badge untouched by a plain m
   assert.ok(shadow().querySelector("style").textContent.includes("#6b7280"));
 });
 
-test("teardown removes the HUD (DevTools closed for this tab)", () => {
-  const { window, emit } = mount();
+test("on mount the HUD pulls current state from the DevTools session", () => {
+  // After an HMR/page reload the content script re-injects a fresh idle HUD;
+  // devtools.js survives with a stale latch and can't time the remount, so the
+  // HUD must PULL. Assert it fires hud-ready on mount (the SW relays a resync).
+  const { sent } = mount();
+  assert.ok(
+    sent.some((m) => m && m.type === "dev-sync:hud-ready"),
+    "content script asks the session to re-assert state on mount",
+  );
+});
+
+test("teardown returns the HUD to idle but keeps it on the page", () => {
+  const { window, emit, shadow } = mount();
   emit({ type: "dev-sync:status", state: "green" });
-  assert.ok(host(window), "HUD present after a message");
+  emit({ type: "dev-sync:pending", count: 2 });
+  assert.equal(bg(shadow), GREEN);
+  assert.ok(shadow().querySelector(".line.pending"), "pending shown");
+
   emit({ type: "dev-sync:teardown" });
-  assert.equal(host(window), null, "HUD removed on teardown");
-  // A later message rebuilds it (DevTools reopened).
-  emit({ type: "dev-sync:status", state: "green" });
-  assert.ok(host(window), "HUD rebuilds on the next session");
+  assert.ok(host(window), "HUD stays on the page after DevTools closes");
+  assert.equal(bg(shadow), IDLE, "badge back to idle");
+  // Pending removal fades out (deferred), so it's un-shown immediately and gone
+  // shortly after — assert the fade has started.
+  assert.equal(shadow().querySelector(".line.pending.show"), null, "stale pending fading out");
 });
 
 test("status message paints the badge per state", () => {
@@ -108,6 +121,20 @@ test("status message paints the badge per state", () => {
   assert.equal(bg(shadow), IDLE);
 });
 
+test("status row (under the settings bar) shows the label, tinted per state", () => {
+  const { emit, shadow } = mount();
+  const status = () => shadow().querySelector(".status");
+  emit({ type: "dev-sync:status", state: "green" });
+  assert.match(status().textContent, /Connected/);
+  assert.equal(status().style.color, GREEN);
+  emit({ type: "dev-sync:status", state: "red" });
+  assert.match(status().textContent, /reach/);
+  assert.equal(status().style.color, RED);
+  // Idle is muted gray, not one of the state colors.
+  emit({ type: "dev-sync:status", state: "idle" });
+  assert.equal(status().style.color, "rgb(154, 161, 179)"); // #9aa1b3
+});
+
 test("messages render in the feed with the right kind marker", () => {
   const { emit, shadow } = mount();
   emit({ type: "dev-sync:message", text: "Autosaved → Card.tsx", kind: "info" });
@@ -119,6 +146,22 @@ test("messages render in the feed with the right kind marker", () => {
   assert.ok(lines[0].classList.contains("warn"));
   assert.equal(lines[0].querySelector(".ic").textContent, "!");
   assert.equal(lines[1].querySelector(".ic").textContent, "✓");
+});
+
+test("autosave success message renders as a green ✓ confirmation", () => {
+  const { emit, shadow } = mount();
+  // The exact shape the service worker relays after a clean autosave
+  // (summarizeAutosave → { kind: "success" }).
+  emit({
+    type: "dev-sync:message",
+    text: "Autosaved 1 change → Card.tsx",
+    kind: "success",
+  });
+  const line = shadow().querySelector(".feed .line");
+  assert.ok(line, "confirmation line rendered");
+  assert.ok(line.classList.contains("success"), "styled as success, not generic");
+  assert.equal(line.querySelector(".ic").textContent, "✓");
+  assert.match(line.querySelector(".msg").textContent, /Autosaved 1 change → Card\.tsx/);
 });
 
 test("feed trims transient lines to the cap (4)", () => {

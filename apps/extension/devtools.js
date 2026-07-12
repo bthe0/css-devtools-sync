@@ -52,23 +52,6 @@ async function syncBase() {
   return `${await inspectedOrigin()}${MOUNT_PREFIX}`;
 }
 
-// Only localhost dev servers carry the apply engine. The CDP-attach permission
-// is browser-wide (not gated by host_permissions), so without this check every
-// tab that opens DevTools would get attached — plus Chrome's yellow "started
-// inspecting this browser" banner — even on google.com. Mirror the manifest
-// content_scripts matches: http(s) on localhost / 127.0.0.1.
-function isDevHost(origin) {
-  try {
-    const u = new URL(origin);
-    return (
-      (u.protocol === "http:" || u.protocol === "https:") &&
-      (u.hostname === "localhost" || u.hostname === "127.0.0.1")
-    );
-  } catch {
-    return false;
-  }
-}
-
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
@@ -237,11 +220,16 @@ function engineErrorMessage(status) {
 let hudStatus = "idle";
 function setStatus(state) {
   if (state === hudStatus) return;
-  hudStatus = state;
   try {
+    // Latch the new state ONLY after a successful post. The first checkHealth()
+    // fires at module load, before connectPort() assigns `port` — posting then
+    // throws. Latching before the post would strand hudStatus at the undelivered
+    // value and the 5s poll (gated on idle/red) would never re-send it → badge
+    // stuck idle. Leaving hudStatus unchanged lets the next poll retry.
     port.postMessage({ type: "status", state });
+    hudStatus = state;
   } catch {
-    /* port gone */
+    /* port not ready / gone — retry on the next health poll */
   }
 }
 
@@ -331,18 +319,59 @@ let port = null;
 let reconnectAttempts = 0;
 const MAX_RECONNECT = 6;
 
+// The very first "attach" can be lost: on a cold service worker (just after an
+// extension reload) the onConnect handler may not be live yet, or tabUrl reads
+// back empty transiently and the SW replies a false "not-dev-host". Either way
+// devtools.js used to wait forever, and only closing + reopening DevTools (a
+// fresh port + fresh attach) recovered. So re-post attach until the SW acks —
+// "attached", "not-dev-host", or "attach-failed" all count as a definitive
+// reply that stops the retries.
+const ATTACH_ACK_MS = 700;
+const MAX_ATTACH_TRIES = 6;
+let attachAcked = false;
+let attachTries = 0;
+let attachRetryTimer = null;
+
+function sendAttach() {
+  attachTries += 1;
+  try {
+    port.postMessage({ type: "attach", tabId });
+  } catch {
+    /* port gone; onDisconnect drives reconnect */
+    return;
+  }
+  clearTimeout(attachRetryTimer);
+  if (attachTries >= MAX_ATTACH_TRIES) return;
+  attachRetryTimer = setTimeout(() => {
+    if (!attachAcked) sendAttach();
+  }, ATTACH_ACK_MS);
+}
+
+// Any definitive reply from the SW stops the attach retries.
+function ackAttach() {
+  attachAcked = true;
+  clearTimeout(attachRetryTimer);
+}
+
 function connectPort() {
   port = chrome.runtime.connect({ name: "dev-sync-panel" });
+  attachAcked = false;
+  attachTries = 0;
 
   port.onMessage.addListener((msg) => {
     switch (msg.type) {
       case "attached":
         attached = true;
+        ackAttach();
         reconnectAttempts = 0; // healthy again — reset backoff
+        // Port is live now — probe the engine immediately so the badge paints
+        // green (or red) at once instead of waiting up to 5s for the next poll.
+        void checkHealth();
         break;
 
       case "attach-failed":
         attached = false;
+        ackAttach();
         // Most common cause: another chrome.debugger extension already attached.
         console.warn(`[dev-sync] could not attach debugger: ${msg.message}`);
         toastRaw(`CSS Sync: could not attach — ${msg.message}`, "warn");
@@ -351,6 +380,26 @@ function connectPort() {
       case "detached":
         attached = false;
         console.warn(`[dev-sync] debugger detached (${msg.reason})`);
+        break;
+
+      case "not-dev-host":
+        // The inspected tab isn't a localhost dev server — no apply engine to
+        // sync to. Stay idle (no attach, no banner, no toast); if the user
+        // navigates this tab to a dev server they can reopen DevTools.
+        attached = false;
+        ackAttach();
+        break;
+
+      case "resync":
+        // The in-page HUD just (re)mounted — the inspected page reloaded (HMR /
+        // navigation) WITH DevTools still open, so devtools.js survived but the
+        // content script re-injected a fresh, idle HUD and PULLED for state (it
+        // knows exactly when it mounts; a push from here races the injection).
+        // Clear the status latch and re-assert current status + pending so the
+        // fresh HUD reconnects immediately, no manual DevTools reopen.
+        hudStatus = "idle";
+        void checkHealth();
+        notifyPending();
         break;
 
       case "change":
@@ -419,21 +468,16 @@ function connectPort() {
   });
 
   // Attach immediately — DevTools is open, so capture should be live now.
-  port.postMessage({ type: "attach", tabId });
+  // Retried until the SW acks (see sendAttach) so a lost first attach on a cold
+  // worker no longer needs a manual DevTools close+reopen to recover.
+  sendAttach();
 }
 
-// Gate startup on the inspected page being a localhost dev server. On any other
-// page (google.com, prod sites) we never connect, never attach, and never show
-// the "started inspecting this browser" banner — DevTools opens clean there.
-(async () => {
-  let origin;
-  try {
-    origin = await inspectedOrigin();
-  } catch {
-    return; // origin unresolvable — safest not to attach
-  }
-  if (isDevHost(origin)) connectPort();
-})();
+// Connect unconditionally. Whether to actually attach the CDP session (and
+// risk Chrome's "started inspecting this browser" banner) is decided in the
+// service worker from the tab's real URL — reliable, no inspectedWindow.eval
+// race. On a non-dev tab the SW replies "not-dev-host" and we stay idle.
+connectPort();
 
 // ---------------------------------------------------------------------------
 // Element selection -> ElementContext (tracks the Elements-panel selection)
