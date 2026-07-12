@@ -5,3 +5,7 @@ dist/
 .DS_Store
 
 .chrome-profile/
+
+# brand logo pick candidates (only the chosen brand/logo.png is committed)
+brand/logo-candidates/
+brand/logo-candidates-iconpass/

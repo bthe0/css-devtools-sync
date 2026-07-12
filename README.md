@@ -1,77 +1,126 @@
-# css-devtools-sync
+<div align="center">
 
-Dev tool that syncs CSS edits made in Chrome DevTools (Styles panel) back to your local source files — plain CSS, Sass modules, Emotion css-in-js, and Tailwind class lists — via a local apply server and a DevTools extension.
+<img src="./brand/logo.png" alt="dev-sync" width="360" />
+
+<h1>dev-sync</h1>
+
+**Edit CSS in Chrome DevTools → it writes back to your source files.**
+
+Plain CSS · Sass modules · Emotion/styled css-in-js · Tailwind class lists — synced from the Styles panel to disk through a local apply engine and a DevTools extension.
+
+<!-- badges -->
+[![CI](https://github.com/bthe0/css-devtools-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/bthe0/css-devtools-sync/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/bthe0/css-devtools-sync/actions/workflows/codeql.yml/badge.svg)](https://github.com/bthe0/css-devtools-sync/actions/workflows/codeql.yml)
+[![Node](https://img.shields.io/badge/node-%E2%89%A520-339933?logo=node.js&logoColor=white)](package.json)
+[![pnpm](https://img.shields.io/badge/pnpm-10.12-F69220?logo=pnpm&logoColor=white)](https://pnpm.io)
+[![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](tsconfig.base.json)
+[![Vite](https://img.shields.io/badge/Vite-6-646CFF?logo=vite&logoColor=white)](https://vite.dev)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+</div>
+
+---
+
+## What it does
+
+You tweak `border-radius` on a rule in the DevTools **Styles** panel. `dev-sync` figures out which source construct produced that rule — a `.css` file, a compiled `.module.scss`, an Emotion template literal, or a Tailwind utility in a `className` — and writes the edit **back into that source**. Vite HMR reloads, and the change now comes from your code, not a runtime override.
+
+It resolves DevTools → source through two channels:
+
+- **CSS → source**: CSS sourcemaps (enabled automatically by the `devSync()` bundler plugin) plus per-tier apply strategies (`postcss`, `sourcemap`, `cssinjs`, `classlist`).
+- **DOM element → source**: a Babel plugin stamps every JSX host element at dev time with a **non-enumerable `__srcLoc` JS property** (`{ dataSourceFile, dataSourceLine, dataSourceComponent }`) — read off `$0.__srcLoc` over CDP. It is *not* a `data-source-*` DOM attribute (those would pollute the Elements panel).
+
+## The test app
+
+The fixture app exercises every styling tier in one page — each block maps to a distinct apply strategy (plain CSS, CSS Modules, Sass sourcemap, css-in-js, Tailwind class lists, static markup, image attrs):
+
+<div align="center">
+  <img src="./docs/screenshots/test-app.png" alt="dev-sync test app — every styling tier on one page" width="720" />
+</div>
+
+## Quick start (drop-in)
+
+One plugin self-configures the CSS sourcemap, boots the apply engine on your dev server's own origin, and stamps JSX:
+
+```ts
+// vite.config.ts
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import { devSync } from "@dev-sync/vite";
+
+export default defineConfig({
+  plugins: [react(), devSync()],
+});
+```
+
+Or let the CLI detect your stack and edit the config for you (previews a diff, writes only on confirm):
+
+```sh
+pnpm dlx @dev-sync/server init
+```
+
+Then **Load unpacked** `apps/extension/` at `chrome://extensions` (Developer mode on), open your app's DevTools, and use the **Source Sync** panel.
 
 ## Monorepo layout
 
 ```
 packages/
   contract/                      @dev-sync/contract — wire protocol (Zod v4 schemas + TS types)
-  babel-plugin-source-locator/   @dev-sync/babel-plugin-source-locator — stamps JSX with data-source-* attrs (dev only) + Vite wrapper
+  babel-plugin-source-locator/   @dev-sync/babel-plugin-source-locator — stamps JSX host elements
+                                 with the off-DOM __srcLoc property (dev only) + Vite wrapper
+  vite/                          @dev-sync/vite — drop-in devSync() plugin: CSS devSourcemap +
+                                 apply engine on the dev-server origin + source-locator
 apps/
-  server/                        @dev-sync/server — local apply engine on 127.0.0.1:7777, writes are jailed to DEV_SYNC_WORKSPACE_ROOT
-  test-app/                      @dev-sync/test-app — fixture app on :5199 exercising every tier
-  extension/                     Chrome MV3 DevTools extension (plain JS, loaded unpacked — not a workspace package)
+  server/                        @dev-sync/server — apply engine + `dev-sync init` CLI; writes are
+                                 jailed to DEV_SYNC_WORKSPACE_ROOT (fail-closed)
+  test-app/                      @dev-sync/test-app — fixture app exercising every styling tier
+  extension/                     Chrome MV3 DevTools extension (plain JS, loaded unpacked)
 ```
 
-`@dev-sync/contract` is the single source of truth for the extension <-> server protocol. See [PLAN.md](./PLAN.md) for honest per-tier status.
+`@dev-sync/contract` is the single source of truth for the extension ⇄ server protocol. See [PLAN.md](./PLAN.md) for honest per-tier status.
 
-## Full run-through
+## Framework support
 
-### 1. Install + build
+The `devSync()` plugin works on any Vite app. Frameworks split two ways:
 
-```sh
-pnpm install
-pnpm build          # builds contract + babel plugin dists (test-app's vite.config imports the plugin's dist)
-```
+| Bucket | Frameworks | `init` behavior |
+|---|---|---|
+| **Vite-plugin** (editable `plugins` array) | Vue, Svelte, Qwik, plain React+Vite | onboarded — `devSync()` added to your config |
+| **Build-owning** (own their config/build) | Next.js, Nuxt, Astro, SvelteKit, Remix, SolidStart | detected & skipped with a note (they need their own integration) |
 
-### 2. Start the sync server (port 7777)
-
-The server refuses to start without `DEV_SYNC_WORKSPACE_ROOT` and will only ever write inside it. Point it at the test app:
-
-```sh
-DEV_SYNC_WORKSPACE_ROOT="$PWD/apps/test-app" pnpm --filter @dev-sync/server dev
-```
-
-(Optionally `export ANTHROPIC_API_KEY=...` first — enables LLM-assisted *placement* of brand-new rules when several candidate files exist. Everything else is deterministic; see `.env.example`. The server reads plain env vars, it does not auto-load `.env`.)
-
-### 3. Start the test app (port 5199)
-
-```sh
-pnpm --filter @dev-sync/test-app dev
-```
-
-Open http://localhost:5199 — Vite dev serve runs the source-locator plugin, so every JSX host element carries `data-source-file` / `data-source-line` / `data-source-component`.
-
-### 4. Load the extension
-
-1. Open `chrome://extensions`, enable **Developer mode**.
-2. **Load unpacked** → select `apps/extension/`.
-
-### 5. Sync an edit
-
-1. Open http://localhost:5199, open DevTools, switch to the **Source Sync** panel and attach (uses `chrome.debugger` — expect Chrome's yellow "started debugging" banner; don't dismiss it).
-2. In **Elements → Styles**, select e.g. the PlainCard and change `border-radius` on `.plain-card`.
-3. The change appears in the Source Sync panel diff list. Click **Sync**.
-4. Watch `apps/test-app/src/components/PlainCard.css` change on disk; Vite HMR reloads the page with the edit now coming from source.
-5. Click **Verify** — the extension re-reads computed styles via CDP and POSTs them to `/verify`; mismatches are listed, green banner otherwise.
-
-New rules typed in DevTools (e.g. `.plain-card:hover { ... }`) land in the inspector sheet and go through the placement engine (deterministic candidates first, LLM tiebreak only with `ANTHROPIC_API_KEY` set and `APP_ENV != production`).
+> **Next.js note:** Next runs its own dev server and defaults to Turbopack, so a webpack-plugin transport does not attach — Next support is tracked separately (see PLAN.md P3).
 
 ## What edits map where (per tier)
 
-| Component (test-app) | Styling tier | Edit this in DevTools | Source file that changes | Apply mode |
+| Component (test-app) | Styling tier | Edit in DevTools | Source that changes | Apply mode |
 |---|---|---|---|---|
-| `PlainCard` | Plain CSS file | `.plain-card*` rules in Styles | `apps/test-app/src/components/PlainCard.css` | `postcss` |
-| `ScssPanel` | Sass module (compiled, sourcemapped) | `.panel*` (hashed module classes) in Styles | `apps/test-app/src/components/ScssPanel.module.scss` | `sourcemap` |
-| `EmotionButton` | Emotion `styled` css-in-js | `css-*--EmotionButton*` classes in Styles | template literal in `apps/test-app/src/components/EmotionButton.tsx` | `cssinjs` |
-| `TailwindHero` | Tailwind utilities | a utility class declaration (e.g. `.p-8`) in Styles | `className` string in `apps/test-app/src/components/TailwindHero.tsx` (utility swap, e.g. `p-8` → `p-[40px]`) | `classlist` |
-| `StaticBlock` | Static JSX with inline `style` | — **not syncable yet** | would be `apps/test-app/src/components/StaticBlock.tsx` | n/a (see PLAN.md Tier 5) |
+| `PlainCard` | Plain CSS file | `.plain-card*` rules | `PlainCard.css` | `postcss` |
+| `ScssPanel` | Sass module (sourcemapped) | `.panel*` (hashed classes) | `ScssPanel.module.scss` | `sourcemap` |
+| `EmotionButton` | Emotion `styled` | `css-*--EmotionButton*` classes | template literal in `EmotionButton.tsx` | `cssinjs` |
+| `TailwindHero` | Tailwind utilities | a utility class (e.g. `.p-8`) | `className` in `TailwindHero.tsx` (`p-8` → `p-[40px]`) | `classlist` |
+| `StaticBlock` | Static JSX text/attrs | literal text / `aria-label` / `title` | `StaticBlock.tsx` | markup set-text/set-attr |
 
-## Dev commands
+## Local development
 
 ```sh
-pnpm build        # build all packages/apps (topological)
-pnpm typecheck    # builds packages, then tsc --noEmit everywhere
-pnpm test         # vitest: server (28 tests) + babel plugin (4 tests)
+pnpm install
+pnpm build          # topological: builds contract + babel plugin + vite dists first
+pnpm typecheck      # builds packages, then tsc --noEmit everywhere
+pnpm test           # vitest across every workspace (470 tests)
 ```
+
+Run the fixture app + engine against the test app:
+
+```sh
+# apply engine, jailed to the test app; refuses to start without the root
+DEV_SYNC_WORKSPACE_ROOT="$PWD/apps/test-app" pnpm --filter @dev-sync/server dev
+
+# the fixture app (source-locator + apply engine mounted on its own origin)
+pnpm --filter @dev-sync/test-app dev
+```
+
+Optionally `export ANTHROPIC_API_KEY=...` to enable LLM-assisted *placement* of brand-new rules when several candidate files tie (deterministic otherwise; disabled when `APP_ENV=production`).
+
+## License
+
+MIT © [bthe0](https://github.com/bthe0)
