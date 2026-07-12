@@ -113,6 +113,14 @@ describe("detectStack — css-in-js + tailwind + react plugin", () => {
     expect(detectStack(swc).hasReactPlugin).toBe(false);
   });
 
+  it("reports the full sorted dependency name set (deps + devDeps)", () => {
+    const root = makeRepo({
+      "package.json": PKG({ "styled-components": "^6.0.0" }, { vite: "^5.0.0", tailwindcss: "^3.4.0" }),
+      "vite.config.ts": VITE_CONFIG,
+    });
+    expect(detectStack(root).dependencies).toEqual(["styled-components", "tailwindcss", "vite"]);
+  });
+
   it("defaults everything off for a bare repo with no css-in-js / tailwind / react", () => {
     const root = makeRepo({
       "package.json": PKG({}, { vite: "^5.0.0" }),

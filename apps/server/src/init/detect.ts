@@ -29,6 +29,12 @@ export interface StackReport {
    * editing a react() block it can't safely extend.
    */
   readonly hasReactPlugin: boolean;
+  /**
+   * All dependency + devDependency names, sorted. The orchestrator gates plugin
+   * injection on presence here — never wire a config to reference a package the
+   * target repo hasn't installed (that breaks their dev server).
+   */
+  readonly dependencies: readonly string[];
 }
 
 /** vite config filenames, in the order Vite itself resolves them. */
@@ -105,5 +111,6 @@ export function detectStack(workspaceRoot: string): StackReport {
     cssInJs,
     tailwind: deps.has("tailwindcss"),
     hasReactPlugin: deps.has("@vitejs/plugin-react"),
+    dependencies: [...deps].sort(),
   };
 }
