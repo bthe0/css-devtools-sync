@@ -36,6 +36,27 @@ const EnvSchema = z.object({
    * escape hatch so runs never pollute the real home directory.
    */
   DEV_SYNC_JOURNAL_DIR: z.preprocess(emptyToUndef, z.string().min(1).optional()),
+}).superRefine((env, ctx) => {
+  // Production hardening: the two guards that are optional (dev-convenience) in
+  // development MUST be present in production, or the server boots fail-OPEN —
+  // an unset SYNC_TOKEN leaves every writer route ungated, and an unset
+  // EXTENSION_ID rejects every origin (fail-closed but silently unusable).
+  // Require both explicitly so misconfiguration fails loud at startup.
+  if (env.APP_ENV !== "production") return;
+  if (!env.SYNC_TOKEN) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["SYNC_TOKEN"],
+      message: "SYNC_TOKEN is required when APP_ENV=production (writer routes must be gated)",
+    });
+  }
+  if (!env.EXTENSION_ID) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["EXTENSION_ID"],
+      message: "EXTENSION_ID is required when APP_ENV=production (CORS origin allowlist)",
+    });
+  }
 });
 
 export interface Config {
