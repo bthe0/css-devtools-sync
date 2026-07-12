@@ -18,7 +18,9 @@ export function App() {
         changes.
       </p>
       <section className="tier-section" id="plain">
-        <h2 className="tier-heading">ZZZ</h2>
+        <h2 className="tier-heading">
+          Tier: plain CSS (postcss AST match) — PlainCard.css
+        </h2>
         <PlainCard />
       </section>
       <section className="tier-section" id="module">

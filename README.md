@@ -16,6 +16,7 @@ Plain CSS · Sass modules · Emotion/styled css-in-js · Tailwind class lists �
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](tsconfig.base.json)
 [![Vite](https://img.shields.io/badge/Vite-6-646CFF?logo=vite&logoColor=white)](https://vite.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/bthe0)
 
 </div>
 
@@ -45,7 +46,7 @@ It resolves DevTools → source through two channels:
 The fixture app exercises every styling tier in one page — each block maps to a distinct apply strategy (plain CSS, CSS Modules, Sass sourcemap, css-in-js, Tailwind class lists, static markup, image attrs):
 
 <div align="center">
-  <img src="./docs/screenshots/test-app.png" alt="dev-sync test app — every styling tier on one page" width="720" />
+  <img src="./docs/screenshots/demo.gif" alt="dev-sync test app — editing in DevTools syncs to source across every styling tier" width="720" />
 </div>
 
 ## Quick start (drop-in)
@@ -130,6 +131,12 @@ pnpm --filter @dev-sync/test-app dev
 ```
 
 Optionally `export ANTHROPIC_API_KEY=...` to enable LLM-assisted *placement* of brand-new rules when several candidate files tie (deterministic otherwise; disabled when `APP_ENV=production`).
+
+## Support
+
+I build small, sharp developer tools and ship them open source — no paywalls, no upsells. If dev-sync saved you a debugging session, a coffee keeps the next tool coming.
+
+<a href="https://buymeacoffee.com/bthe0"><img src="https://img.shields.io/badge/Buy%20Me%20A%20Coffee-bthe0-FFDD00?logo=buymeacoffee&logoColor=black&style=for-the-badge" alt="Buy Me A Coffee" /></a>
 
 ## License
 

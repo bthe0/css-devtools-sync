@@ -9,9 +9,9 @@ export function PlainCard() {
   const [showDetails, setShowDetails] = useState(false);
 
   return (
-    <article className="plain-card csync-a34r19">
-      <h3 className="plain-card__title">xxxxx</h3>
-      <p className="plain-card__body">ulalalalal</p>
+    <article className="plain-card">
+      <h3 className="plain-card__title">Pipeline #128</h3>
+      <p className="plain-card__body">All checks green on main</p>
       <span className="plain-card__badge">passing</span>
       <button
         type="button"
