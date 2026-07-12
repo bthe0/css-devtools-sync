@@ -60,3 +60,56 @@ Backups: /tmp/EmotionButton.tsx.bak /tmp/StyledBadge.tsx.bak (main.tsx already r
 - Fixed `apps/extension/background/service-worker.js`: two literal NUL bytes (used as map-key separators in template strings) made the file read as binary; replaced with `\u0000` escapes, `node --check` green on all extension JS.
 - Root `typecheck` script builds `packages/*` first (test-app's vite.config resolves the plugin's dist types).
 - `pnpm install` / `pnpm build` / `pnpm typecheck` / `pnpm test` all green (server 28 tests, plugin 4 tests).
+
+---
+
+## Pivot (2026-07-12) — bundler-plugin integration (replaces the static `css-sync init` surgery)
+
+User: *"can't you just have an index file import of library that does all that? start the http
+server etc.?"* … *"webpack and vite should catch all then. add svelte vue qwik too."*
+
+Ship a **bundler plugin** the user drops into their config once, instead of statically diffing +
+mutating `vite.config` (`apps/server/src/init/*`, `transform.ts`). The plugin self-configures the
+CSS sourcemap, boots the apply engine on the dev server's own origin, and stamps JSX. Covers every
+Vite-based framework for free (all take `plugins: [cssSync()]`) + a webpack path for Next.
+
+### Decisions (locked)
+1. Apply engine **embeds** on the dev-server middleware (Vite `configureServer` →
+   `server.middlewares.use('/__css-sync', h)`; webpack `setupMiddlewares`). Kills the separate
+   :7777 port + CORS allowlist — extension POSTs the page origin it already inspects.
+2. `apps/server` **stays the engine lib**: `applyPayload`/`describeTemplate`/`verifyChecks` are
+   Fastify-decoupled (take a `Config`). New packages import them via a new `./engine` barrel; the
+   standalone Fastify server stays as the non-Vite fallback. (`registerJournalRoutes` is
+   Fastify-shaped — journal/undo mount is a later slice, not P1.)
+3. Phasing: **P1** `@css-sync/vite` (plain React) → **P2** Svelte/Vue/Qwik CSS-sync (same plugin,
+   drop the framework-skip for Vite-based ones) → **P3** webpack (Next).
+4. `init` survives, repurposed: insert one `cssSync()` line into the existing `plugins` array /
+   `nuxt.config` `vite.plugins` / next config. No more `css.devSourcemap` surgery.
+
+### Honest caveats (don't paper over)
+- Vite plugin only runs where Vite runs. **Next 15+ dev defaults to Turbopack** — a webpack plugin
+  will NOT load under Turbopack. P3 covers `next.config` webpack; Turbopack needs `next dev
+  --webpack` or its own path. Say so in onboarding.
+- Deep JSX→source stamping is **React-only** (reuses `@css-sync/babel-plugin-source-locator`).
+  Svelte/Vue/Qwik get the CSS-sourcemap layer, not JSX host stamping.
+- emotion/styled label babel plugins live in the framework's own `react()` babel block — our plugin
+  can't retrofit them. Stays an install-hint.
+
+### P1 slices — `@css-sync/vite` (new `packages/vite`, default export `cssSync(opts?)`)
+Vite in this repo is `^6`. `cssSync()` returns an array of plugins.
+- **P1.1 (IN PROGRESS):** `config()` → `{ css: { devSourcemap: true } }`; compose the existing
+  `sourceLocator()` (JSX stamping). No engine needed. TDD as pure hook objects.
+- **P1.2:** add `./engine` barrel to `@css-sync/server`; `createApplyMiddleware(cfg)` (thin connect
+  handler over the engine fns); `configureServer` mounts it at `/__css-sync/apply|describe|verify`.
+- **P1.3:** extension POSTs page origin `/__css-sync/*` instead of `:7777`.
+
+### P2 / P3
+- P2: drop the `framework` short-circuit in `init` for Vite-based frameworks (insert `cssSync()` into
+  their existing plugins array instead); revise `init-plan.test.ts` "meta-framework skip" +
+  `init-cli.test.ts` "framework → no write".
+- P3: `@css-sync/webpack` — css-loader `sourceMap` + `devtool` + `setupMiddlewares` mount; Next via
+  `next.config` webpack fn; flag the Turbopack gap.
+
+### Status log
+- 2026-07-12: plan written; grounded on server.ts/config.ts/apply.ts/init/*, existing
+  `sourceLocator()` vite wrapper. Engine surface confirmed reusable. Starting P1.1.

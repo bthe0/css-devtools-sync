@@ -182,6 +182,25 @@ importers:
         specifier: ^5.8.0
         version: 5.9.3
 
+  packages/vite:
+    dependencies:
+      '@css-sync/babel-plugin-source-locator':
+        specifier: workspace:*
+        version: link:../babel-plugin-source-locator
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.1
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vite:
+        specifier: ^6.0.0
+        version: 6.4.3(@types/node@22.20.1)(jiti@1.21.7)(sass-embedded@1.100.0)(sass@1.100.0)(tsx@4.23.0)
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.7(@types/node@22.20.1)(jiti@1.21.7)(jsdom@25.0.1)(sass-embedded@1.100.0)(sass@1.100.0)(tsx@4.23.0)
+
 packages:
 
   '@adobe/css-tools@4.5.0':

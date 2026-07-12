@@ -1,0 +1,31 @@
+{
+  "name": "@css-sync/vite",
+  "version": "0.0.1",
+  "description": "One-line Vite plugin that self-configures the CSS dev sourcemap, stamps JSX host elements with source locations, and (P1.2) mounts the apply engine on the dev server's own origin",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@css-sync/babel-plugin-source-locator": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.8.0",
+    "vite": "^6.0.0",
+    "vitest": "^3.0.0"
+  }
+}
