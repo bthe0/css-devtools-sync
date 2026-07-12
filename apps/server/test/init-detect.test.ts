@@ -163,6 +163,54 @@ describe("detectStack — css-in-js + tailwind + react plugin", () => {
   });
 });
 
+describe("detectStack — meta-framework detection", () => {
+  // css-sync init v1 targets plain Vite + React. Meta-frameworks own their own
+  // build/config (and mostly aren't React), so they're detected and skipped
+  // rather than mis-onboarded. A React framework with its own vite config
+  // (Remix, Next) is still a framework here — v1 doesn't auto-edit those.
+  it.each([
+    ["next", { next: "16.0.0" }, "Next.js"],
+    ["nuxt", { nuxt: "^3.0.0" }, "Nuxt"],
+    ["astro", { astro: "^4.0.0" }, "Astro"],
+    ["@sveltejs/kit", { "@sveltejs/kit": "^2.0.0" }, "SvelteKit"],
+    ["@remix-run/dev", { "@remix-run/dev": "^2.0.0" }, "Remix"],
+    ["@builder.io/qwik", { "@builder.io/qwik": "^1.0.0" }, "Qwik"],
+    ["@solidjs/start", { "@solidjs/start": "^1.0.0" }, "SolidStart"],
+    ["vue (bare)", { vue: "^3.0.0" }, "Vue"],
+  ])("flags %s as framework %s", (_label, dep, expected) => {
+    const root = makeRepo({ "package.json": PKG(dep, { vite: "^5.0.0" }) });
+    expect(detectStack(root).framework).toBe(expected);
+  });
+
+  it("a framework marker suppresses the vite-dep bundler fallback (no vite.config)", () => {
+    const root = makeRepo({ "package.json": PKG({ nuxt: "^3.0.0" }, { vite: "^5.0.0" }) });
+    expect(detectStack(root).bundler).toBe("unknown");
+  });
+
+  it("still finds the vite.config for a framework that ships one (SvelteKit)", () => {
+    const root = makeRepo({
+      "package.json": PKG({ "@sveltejs/kit": "^2.0.0", svelte: "^5.0.0" }, { vite: "^5.0.0" }),
+      "vite.config.ts": VITE_CONFIG,
+    });
+    const r = detectStack(root);
+    expect(r.framework).toBe("SvelteKit");
+    expect(r.configPath).toBe(path.join(root, "vite.config.ts")); // config still read
+  });
+
+  it("a plain React + Vite app is NOT a framework", () => {
+    const root = makeRepo({
+      "package.json": PKG(
+        { react: "^19.0.0", "react-dom": "^19.0.0" },
+        { vite: "^5.0.0", "@vitejs/plugin-react": "^4.0.0" },
+      ),
+      "vite.config.ts": VITE_CONFIG,
+    });
+    const r = detectStack(root);
+    expect(r.framework).toBeNull();
+    expect(r.bundler).toBe("vite");
+  });
+});
+
 describe("detectStack — malformed / missing package.json", () => {
   it("tolerates a missing package.json (bundler still inferred from the config file)", () => {
     const root = makeRepo({ "vite.config.ts": VITE_CONFIG });

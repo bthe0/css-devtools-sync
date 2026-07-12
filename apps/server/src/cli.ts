@@ -151,8 +151,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   });
 
   // ready-but-not-written (declined) is not an error; genuine non-actionable
-  // states (no-vite / no-config) exit non-zero so scripts can branch on it.
-  if (outcome.status === "no-vite" || outcome.status === "no-config") return 1;
+  // states exit non-zero so scripts can branch on "nothing to onboard here".
+  if (outcome.status === "no-vite" || outcome.status === "no-config" || outcome.status === "framework") {
+    return 1;
+  }
   return 0;
 }
 

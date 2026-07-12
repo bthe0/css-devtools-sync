@@ -75,6 +75,34 @@ export default defineConfig({ css: { devSourcemap: true } });
   });
 });
 
+describe("planInit — meta-framework skip", () => {
+  const FRAMEWORK_VITE = `import { sveltekit } from "@sveltejs/kit/vite";
+import { defineConfig } from "vite";
+export default defineConfig({ plugins: [sveltekit()] });
+`;
+
+  it("framework with its own vite.config → status framework, never a ready diff", () => {
+    const root = makeRepo({
+      "package.json": PKG({ "@sveltejs/kit": "^2.0.0", svelte: "^5.0.0" }, { vite: "^5.0.0" }),
+      "vite.config.ts": FRAMEWORK_VITE,
+    });
+    const plan = planInit(root);
+    expect(plan.status).toBe("framework");
+    expect(plan.newSource).toBeNull();
+    expect(plan.diff).toBe("");
+    expect(plan.message).toMatch(/sveltekit/i);
+    // the config on disk is never proposed for editing
+    expect(fs.readFileSync(path.join(root, "vite.config.ts"), "utf8")).toBe(FRAMEWORK_VITE);
+  });
+
+  it("framework without a vite.config (Nuxt) → status framework, not no-config", () => {
+    const root = makeRepo({ "package.json": PKG({ nuxt: "^3.0.0" }, { vite: "^5.0.0" }) });
+    const plan = planInit(root);
+    expect(plan.status).toBe("framework");
+    expect(plan.message).toMatch(/nuxt/i);
+  });
+});
+
 describe("planInit — plain CSS baseline", () => {
   it("plain repo → status ready, diff enables css.devSourcemap, no required deps", () => {
     const root = makeRepo({ "package.json": PKG({}, { vite: "^5.0.0" }), "vite.config.ts": VITE });

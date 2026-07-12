@@ -113,6 +113,23 @@ export default defineConfig({ css: { devSourcemap: true } });
     expect(out.written).toBe(false);
   });
 
+  it("framework → no confirm, no write, message logged", async () => {
+    const root = makeRepo({
+      "package.json": PKG({ "@sveltejs/kit": "^2.0.0", svelte: "^5.0.0" }, { vite: "^5.0.0" }),
+      "vite.config.ts": `import { sveltekit } from "@sveltejs/kit/vite";
+import { defineConfig } from "vite";
+export default defineConfig({ plugins: [sveltekit()] });
+`,
+    });
+    const confirm = vi.fn(async () => true);
+    const the = io(root, { confirm });
+    const out = await runInit(the);
+    expect(out.status).toBe("framework");
+    expect(out.written).toBe(false);
+    expect(confirm).not.toHaveBeenCalled();
+    expect(the.logs.join("\n")).toMatch(/sveltekit/i);
+  });
+
   it("manual → no write, message logged", async () => {
     const root = makeRepo({
       "package.json": PKG({}, { vite: "^5.0.0" }),

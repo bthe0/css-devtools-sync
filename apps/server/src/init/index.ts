@@ -14,7 +14,7 @@ import { toWorkspaceRelative } from "../workspace.js";
 import { detectStack, type StackReport } from "./detect.js";
 import { transformViteConfig, type InitTransformPlan } from "./transform.js";
 
-export type InitStatus = "ready" | "up-to-date" | "no-vite" | "no-config" | "manual";
+export type InitStatus = "ready" | "up-to-date" | "no-vite" | "no-config" | "manual" | "framework";
 
 export interface RequiredDep {
   readonly pkg: string;
@@ -58,6 +58,18 @@ function base(report: StackReport, over: Partial<InitPlan> & { status: InitStatu
 
 export function planInit(workspaceRoot: string): InitPlan {
   const report = detectStack(workspaceRoot);
+
+  // Meta-frameworks own their build + config (and mostly aren't React). v1
+  // targets plain Vite + React, so detect and skip rather than auto-edit a
+  // framework-managed config and falsely claim the DevTools sync is wired up.
+  if (report.framework !== null) {
+    return base(report, {
+      status: "framework",
+      message:
+        `${report.framework} detected — css-sync init v1 targets plain Vite + React apps and won't edit a framework-managed config. ` +
+        "Skipped. You can still enable CSS dev sourcemaps manually in your config.",
+    });
+  }
 
   if (report.bundler !== "vite") {
     return base(report, {

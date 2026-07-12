@@ -2,8 +2,9 @@
 //
 // Reads a target repo's package.json + vite.config.* and reports what init can
 // wire up. v1 is Vite-only: bundler is "vite" when a vite config file exists, or
-// vite is a dep NOT explained by a test runner (vitest) or a competing framework
-// (next/astro that pull vite transitively); else "unknown" (init exits early).
+// vite is a dep NOT explained by a test runner (vitest) or a meta-framework that
+// pulls vite transitively; else "unknown". Meta-frameworks (Next/Nuxt/SvelteKit/
+// Remix/Qwik/Solid/Astro/Vue) are reported via `framework` and skipped by init.
 //
 // Everything here tolerates missing/malformed inputs — detection never throws;
 // a repo we can't read cleanly just reports less, and init decides what to do.
@@ -12,6 +13,37 @@ import path from "node:path";
 
 /** css-in-js families init knows how to configure (babel plugin injection). */
 export type CssInJs = "styled-components" | "emotion";
+
+/** Meta-frameworks v1 detects and skips (they own their build/config). */
+export type KnownFramework =
+  | "Next.js"
+  | "Nuxt"
+  | "Astro"
+  | "SvelteKit"
+  | "Remix"
+  | "Qwik"
+  | "SolidStart"
+  | "Vue";
+
+/**
+ * Marker dep -> framework, in priority order. A `vite` dep alone never proves a
+ * plain Vite app: these frameworks pull vite in transitively and/or ship their
+ * own vite config, so their marker dep short-circuits onboarding. Ordered so a
+ * more-specific marker (e.g. @sveltejs/kit) wins over a broad one (svelte/vue).
+ */
+const FRAMEWORK_MARKERS: readonly (readonly [string, KnownFramework])[] = [
+  ["next", "Next.js"],
+  ["nuxt", "Nuxt"],
+  ["astro", "Astro"],
+  ["@sveltejs/kit", "SvelteKit"],
+  ["svelte", "SvelteKit"],
+  ["@remix-run/dev", "Remix"],
+  ["@remix-run/react", "Remix"],
+  ["@builder.io/qwik", "Qwik"],
+  ["@solidjs/start", "SolidStart"],
+  ["solid-start", "SolidStart"],
+  ["vue", "Vue"],
+] as const;
 
 export interface StackReport {
   /** v1 supports "vite" only; "unknown" makes init exit with a "Vite-only" message. */
@@ -36,6 +68,20 @@ export interface StackReport {
    * target repo hasn't installed (that breaks their dev server).
    */
   readonly dependencies: readonly string[];
+  /**
+   * Detected meta-framework, or null for a plain Vite (React) app. When set,
+   * init skips with a "framework — unsupported in v1" message instead of
+   * mis-onboarding a build css-sync can't drive (e.g. Nuxt/SvelteKit).
+   */
+  readonly framework: KnownFramework | null;
+}
+
+/** First matching framework marker dep, or null (priority order). */
+function detectFramework(deps: Set<string>): KnownFramework | null {
+  for (const [marker, framework] of FRAMEWORK_MARKERS) {
+    if (deps.has(marker)) return framework;
+  }
+  return null;
 }
 
 /** vite config filenames, in the order Vite itself resolves them. */
@@ -97,15 +143,15 @@ export function detectStack(workspaceRoot: string): StackReport {
   const pkg = readPackageJson(workspaceRoot);
   const deps = allDepNames(pkg);
   const config = findViteConfig(workspaceRoot);
+  const framework = detectFramework(deps);
 
-  // A `vite` dep alone is NOT proof of a Vite app: Vitest and Vite-based
-  // frameworks (Next, Astro) pull vite in transitively. An on-disk vite.config
-  // is definitive; otherwise the dep-only fallback is disqualified when a
-  // competing framework owns the build or a test runner explains the dep —
-  // better to under-claim (no-vite) than misguide a Next user to make a config.
-  const FRAMEWORK_OWNS_BUILD = ["next", "astro"];
-  const viteDepIsBundler =
-    deps.has("vite") && !deps.has("vitest") && !FRAMEWORK_OWNS_BUILD.some((f) => deps.has(f));
+  // A `vite` dep alone is NOT proof of a plain Vite app: Vitest and Vite-based
+  // frameworks pull vite in transitively. An on-disk vite.config is definitive
+  // for "a vite build exists"; otherwise the dep-only fallback is disqualified
+  // when a test runner (vitest) or a meta-framework explains the dep — better to
+  // under-claim than misguide the user. (Framework-owned configs are still
+  // *read* here; the orchestrator skips them on `framework`, not on bundler.)
+  const viteDepIsBundler = deps.has("vite") && !deps.has("vitest") && framework === null;
   const bundler: StackReport["bundler"] =
     config !== null || viteDepIsBundler ? "vite" : "unknown";
 
@@ -121,5 +167,6 @@ export function detectStack(workspaceRoot: string): StackReport {
     tailwind: deps.has("tailwindcss"),
     hasReactPlugin: deps.has("@vitejs/plugin-react"),
     dependencies: [...deps].sort(),
+    framework,
   };
 }
