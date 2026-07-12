@@ -1,27 +1,28 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { StaticBlock } from "./StaticBlock";
+import { srcLoc } from "../test/srcLoc";
 
 /**
  * Tier 5 (DOM/HTML template) has no stylesheet or CSS-in-JS template to fall
  * back on, so the whole markup-sync path lives or dies on the source-locator
- * babel plugin actually stamping data-source-* onto the rendered host
- * elements, and on those elements carrying literal (non-expression) text and
- * attribute values for set-text/set-attr to target.
+ * babel plugin actually recording each rendered host element's source location
+ * on its off-DOM `__srcLoc` property, and on those elements carrying literal
+ * (non-expression) text and attribute values for set-text/set-attr to target.
  */
 describe("StaticBlock", () => {
-  it("stamps host elements with data-source-file/line/component", () => {
+  it("records source-file/line/component on every host element's __srcLoc", () => {
     const { container } = render(<StaticBlock />);
 
     const nav = screen.getByRole("navigation", { name: "Footer navigation" });
-    expect(nav).toHaveAttribute("data-source-file", "src/components/StaticBlock.tsx");
-    expect(nav).toHaveAttribute("data-source-component", "StaticBlock");
-    expect(nav.getAttribute("data-source-line")).toMatch(/^\d+$/);
+    expect(srcLoc(nav)?.dataSourceFile).toBe("src/components/StaticBlock.tsx");
+    expect(srcLoc(nav)?.dataSourceComponent).toBe("StaticBlock");
+    expect(srcLoc(nav)?.dataSourceLine).toBeGreaterThan(0);
 
     const heading = screen.getByText("css-devtools-sync");
-    expect(heading).toHaveAttribute("data-source-file", "src/components/StaticBlock.tsx");
-    expect(heading).toHaveAttribute("data-source-component", "StaticBlock");
-    expect(heading.getAttribute("data-source-line")).toMatch(/^\d+$/);
+    expect(srcLoc(heading)?.dataSourceFile).toBe("src/components/StaticBlock.tsx");
+    expect(srcLoc(heading)?.dataSourceComponent).toBe("StaticBlock");
+    expect(srcLoc(heading)?.dataSourceLine).toBeGreaterThan(0);
 
     // Every host element StaticBlock renders should be instrumented, not
     // just a spot check. Query within `container` (RTL's own wrapper <div>
@@ -30,8 +31,8 @@ describe("StaticBlock", () => {
     const allHostEls = container.querySelectorAll("footer, div, strong, p, nav, a");
     expect(allHostEls.length).toBeGreaterThan(0);
     allHostEls.forEach((el) => {
-      expect(el).toHaveAttribute("data-source-file", "src/components/StaticBlock.tsx");
-      expect(el).toHaveAttribute("data-source-component", "StaticBlock");
+      expect(srcLoc(el)?.dataSourceFile).toBe("src/components/StaticBlock.tsx");
+      expect(srcLoc(el)?.dataSourceComponent).toBe("StaticBlock");
     });
   });
 

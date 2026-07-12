@@ -1,10 +1,17 @@
 // detect.ts — `css-sync init` stack detection (pure, read-only).
 //
 // Reads a target repo's package.json + vite.config.* and reports what init can
-// wire up. v1 is Vite-only: bundler is "vite" when a vite config file exists, or
-// vite is a dep NOT explained by a test runner (vitest) or a meta-framework that
-// pulls vite transitively; else "unknown". Meta-frameworks (Next/Nuxt/SvelteKit/
-// Remix/Qwik/Solid/Astro/Vue) are reported via `framework` and skipped by init.
+// wire up. init is Vite-based: bundler is "vite" when a vite config file exists,
+// or vite is a dep NOT explained by a test runner (vitest) or a build-owning
+// meta-framework that pulls vite transitively; else "unknown".
+//
+// Frameworks split into two buckets (see FRAMEWORK_MARKERS):
+//   - BUILD-OWNING (Next/Nuxt/Astro/SvelteKit/Remix/SolidStart): own their build
+//     + config, css-sync can't drive them — reported via `framework` with
+//     `frameworkOwnsBuild=true` and skipped by init.
+//   - VITE-PLUGIN (Vue/Svelte/Qwik): plain Vite apps with a user-editable
+//     vite.config plugins array — reported via `framework` with
+//     `frameworkOwnsBuild=false`; init inserts cssSync() like it does for React.
 //
 // Everything here tolerates missing/malformed inputs — detection never throws;
 // a repo we can't read cleanly just reports less, and init decides what to do.
@@ -14,35 +21,38 @@ import path from "node:path";
 /** css-in-js families init knows how to configure (babel plugin injection). */
 export type CssInJs = "styled-components" | "emotion";
 
-/** Meta-frameworks v1 detects and skips (they own their build/config). */
+/** Frameworks init recognizes. Some own their build (skip), some are plain Vite. */
 export type KnownFramework =
   | "Next.js"
   | "Nuxt"
   | "Astro"
   | "SvelteKit"
   | "Remix"
-  | "Qwik"
   | "SolidStart"
-  | "Vue";
+  | "Vue"
+  | "Svelte"
+  | "Qwik";
 
 /**
- * Marker dep -> framework, in priority order. A `vite` dep alone never proves a
- * plain Vite app: these frameworks pull vite in transitively and/or ship their
- * own vite config, so their marker dep short-circuits onboarding. Ordered so a
- * more-specific marker (e.g. @sveltejs/kit) wins over a broad one (svelte/vue).
+ * Marker dep -> [framework, ownsBuild], in priority order. A `vite` dep alone
+ * never proves a plain Vite app: build-owning frameworks pull vite in
+ * transitively and/or ship their own config, so their marker disqualifies the
+ * dep-only inference and short-circuits onboarding. Vite-plugin frameworks
+ * (ownsBuild=false) are real Vite apps — init onboards them. Ordered so a
+ * more-specific marker (e.g. @sveltejs/kit) wins over a broad one (svelte).
  */
-const FRAMEWORK_MARKERS: readonly (readonly [string, KnownFramework])[] = [
-  ["next", "Next.js"],
-  ["nuxt", "Nuxt"],
-  ["astro", "Astro"],
-  ["@sveltejs/kit", "SvelteKit"],
-  ["svelte", "SvelteKit"],
-  ["@remix-run/dev", "Remix"],
-  ["@remix-run/react", "Remix"],
-  ["@builder.io/qwik", "Qwik"],
-  ["@solidjs/start", "SolidStart"],
-  ["solid-start", "SolidStart"],
-  ["vue", "Vue"],
+const FRAMEWORK_MARKERS: readonly (readonly [string, KnownFramework, boolean])[] = [
+  ["next", "Next.js", true],
+  ["nuxt", "Nuxt", true],
+  ["astro", "Astro", true],
+  ["@sveltejs/kit", "SvelteKit", true],
+  ["svelte", "Svelte", false],
+  ["@remix-run/dev", "Remix", true],
+  ["@remix-run/react", "Remix", true],
+  ["@builder.io/qwik", "Qwik", false],
+  ["@solidjs/start", "SolidStart", true],
+  ["solid-start", "SolidStart", true],
+  ["vue", "Vue", false],
 ] as const;
 
 export interface StackReport {
@@ -69,17 +79,23 @@ export interface StackReport {
    */
   readonly dependencies: readonly string[];
   /**
-   * Detected meta-framework, or null for a plain Vite (React) app. When set,
-   * init skips with a "framework — unsupported in v1" message instead of
-   * mis-onboarding a build css-sync can't drive (e.g. Nuxt/SvelteKit).
+   * Detected framework, or null for a plain Vite (React) app. Build-owning ones
+   * (see `frameworkOwnsBuild`) make init skip; Vite-plugin ones (Vue/Svelte/Qwik)
+   * are onboarded like React.
    */
   readonly framework: KnownFramework | null;
+  /**
+   * True when the detected framework owns its own build + config (Next/Nuxt/
+   * Astro/SvelteKit/Remix/SolidStart) — init can't drive it, so it skips. False
+   * for plain-Vite frameworks (Vue/Svelte/Qwik) and when no framework detected.
+   */
+  readonly frameworkOwnsBuild: boolean;
 }
 
-/** First matching framework marker dep, or null (priority order). */
-function detectFramework(deps: Set<string>): KnownFramework | null {
-  for (const [marker, framework] of FRAMEWORK_MARKERS) {
-    if (deps.has(marker)) return framework;
+/** First matching framework marker dep with its ownsBuild flag, or null (priority order). */
+function detectFramework(deps: Set<string>): { name: KnownFramework; ownsBuild: boolean } | null {
+  for (const [marker, name, ownsBuild] of FRAMEWORK_MARKERS) {
+    if (deps.has(marker)) return { name, ownsBuild };
   }
   return null;
 }
@@ -145,13 +161,14 @@ export function detectStack(workspaceRoot: string): StackReport {
   const config = findViteConfig(workspaceRoot);
   const framework = detectFramework(deps);
 
-  // A `vite` dep alone is NOT proof of a plain Vite app: Vitest and Vite-based
-  // frameworks pull vite in transitively. An on-disk vite.config is definitive
-  // for "a vite build exists"; otherwise the dep-only fallback is disqualified
-  // when a test runner (vitest) or a meta-framework explains the dep — better to
-  // under-claim than misguide the user. (Framework-owned configs are still
-  // *read* here; the orchestrator skips them on `framework`, not on bundler.)
-  const viteDepIsBundler = deps.has("vite") && !deps.has("vitest") && framework === null;
+  // A `vite` dep alone is NOT proof of an onboardable Vite app: Vitest and
+  // build-owning frameworks pull vite in transitively. An on-disk vite.config is
+  // definitive for "a vite build exists"; otherwise the dep-only fallback is
+  // disqualified when a test runner (vitest) or a build-owning framework explains
+  // the dep — better to under-claim than misguide. Vite-plugin frameworks
+  // (Vue/Svelte/Qwik) do NOT disqualify: they are real Vite apps init onboards.
+  const viteDepIsBundler =
+    deps.has("vite") && !deps.has("vitest") && !(framework?.ownsBuild ?? false);
   const bundler: StackReport["bundler"] =
     config !== null || viteDepIsBundler ? "vite" : "unknown";
 
@@ -167,6 +184,7 @@ export function detectStack(workspaceRoot: string): StackReport {
     tailwind: deps.has("tailwindcss"),
     hasReactPlugin: deps.has("@vitejs/plugin-react"),
     dependencies: [...deps].sort(),
-    framework,
+    framework: framework?.name ?? null,
+    frameworkOwnsBuild: framework?.ownsBuild ?? false,
   };
 }

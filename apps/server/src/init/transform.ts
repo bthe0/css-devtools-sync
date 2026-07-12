@@ -1,9 +1,11 @@
 // transform.ts — `css-sync init` AST edits on a vite config (recast-preserving).
 //
-// Three idempotent, fail-closed edits over the default-exported config object:
-//   1. css.devSourcemap = true         (sourcemap tier — always safe)
+// Two idempotent, fail-closed edits over the default-exported config object:
+//   1. prepend a cssSync() plugin + its import (@css-sync/vite) — the drop-in
+//      that boots the CSS sourcemap, mounts the apply engine on the dev server,
+//      and stamps JSX host elements. Creates a plugins array if none exists.
 //   2. inject emotion / styled-components babel plugins into react()'s babel
-//   3. prepend a sourceLocator() plugin + its import (Tier-3 JSX stamping)
+//      (React-only css-in-js labels; cssSync doesn't touch those).
 //
 // Contract:
 //   - Never emit source that fails to re-parse (corruption guard throws Skip).
@@ -32,14 +34,12 @@ const recastBabelParser = {
 };
 
 export interface InitTransformPlan {
-  /** Set css.devSourcemap = true (the deterministic sourcemap-tier baseline). */
-  readonly devSourcemap: boolean;
+  /** Prepend cssSync() (+ its @css-sync/vite import) — the drop-in engine plugin. */
+  readonly cssSync: boolean;
   /** Inject @emotion/babel-plugin into react()'s babel.plugins. */
   readonly emotion: boolean;
   /** Inject babel-plugin-styled-components into react()'s babel.plugins. */
   readonly styledComponents: boolean;
-  /** Prepend sourceLocator() (+ import) — Tier-3 JSX host stamping. */
-  readonly sourceLocator: boolean;
 }
 
 export interface TransformResult {
@@ -57,7 +57,7 @@ interface AnyNode {
   [key: string]: unknown;
 }
 
-const SOURCE_LOCATOR_MODULE = "@css-sync/babel-plugin-source-locator/vite";
+const CSS_SYNC_MODULE = "@css-sync/vite";
 
 // --- small AST helpers -----------------------------------------------------
 
@@ -136,30 +136,59 @@ function findConfigObject(program: AnyNode): AnyNode {
 
 // --- individual edits (each returns whether it mutated the AST) -------------
 
-function ensureCssDevSourcemap(obj: AnyNode, warnings: string[]): boolean {
-  const cssProp = findProp(obj, "css");
-  if (!cssProp) {
-    (obj.properties as AnyNode[]).push(
-      objProp("css", b.objectExpression([objProp("devSourcemap", b.booleanLiteral(true))] as never)),
-    );
-    return true;
+/**
+ * Prepend `cssSync()` to the config's plugins array (creating the array if the
+ * config has none) and add `import { cssSync } from "@css-sync/vite"`. cssSync()
+ * is the drop-in: it enables the CSS dev sourcemap, mounts the apply engine on
+ * the dev server, and stamps JSX — so init no longer writes those individually.
+ */
+function ensureCssSyncPlugin(program: AnyNode, obj: AnyNode, warnings: string[]): boolean {
+  let mutated = false;
+
+  let pluginsArr: AnyNode;
+  const pluginsProp = findProp(obj, "plugins");
+  if (!pluginsProp) {
+    pluginsArr = b.arrayExpression([]) as unknown as AnyNode;
+    (obj.properties as AnyNode[]).push(objProp("plugins", pluginsArr));
+    mutated = true;
+  } else {
+    const pv = pluginsProp.value as AnyNode;
+    if (pv.type !== "ArrayExpression") {
+      warnings.push("`plugins` isn't an array literal — add cssSync() to it manually");
+      return mutated;
+    }
+    pluginsArr = pv;
   }
-  const cssVal = cssProp.value as AnyNode;
-  if (cssVal.type !== "ObjectExpression") {
-    throw new SkipChangeError(
-      "`css` config isn't an object literal — add `devSourcemap: true` to it manually",
-    );
+
+  const elements = pluginsArr.elements as AnyNode[];
+  const alreadyPlugin = elements.some(
+    (el) =>
+      el?.type === "CallExpression" &&
+      (el.callee as AnyNode | undefined)?.type === "Identifier" &&
+      (el.callee as AnyNode).name === "cssSync",
+  );
+  if (!alreadyPlugin) {
+    elements.unshift(b.callExpression(b.identifier("cssSync"), []) as unknown as AnyNode);
+    mutated = true;
   }
-  const existing = findProp(cssVal, "devSourcemap");
-  if (!existing) {
-    (cssVal.properties as AnyNode[]).push(objProp("devSourcemap", b.booleanLiteral(true)));
-    return true;
+
+  const body = program.body as AnyNode[];
+  const hasImport = body.some(
+    (n) => n.type === "ImportDeclaration" && (n.source as AnyNode | undefined)?.value === CSS_SYNC_MODULE,
+  );
+  if (!hasImport) {
+    const decl = b.importDeclaration(
+      [b.importSpecifier(b.identifier("cssSync"))],
+      b.stringLiteral(CSS_SYNC_MODULE),
+    ) as unknown as AnyNode;
+    let lastImport = -1;
+    body.forEach((n, i) => {
+      if (n.type === "ImportDeclaration") lastImport = i;
+    });
+    body.splice(lastImport + 1, 0, decl);
+    mutated = true;
   }
-  const val = existing.value as AnyNode;
-  if (val.type === "BooleanLiteral" && val.value === false) {
-    warnings.push("css.devSourcemap is set to false — set it to true for the sourcemap tier");
-  }
-  return false;
+  return mutated;
 }
 
 function ensureBabelPlugins(obj: AnyNode, entries: { name: string; node: AnyNode }[], warnings: string[]): boolean {
@@ -231,46 +260,6 @@ function ensureBabelPlugins(obj: AnyNode, entries: { name: string; node: AnyNode
   return mutated;
 }
 
-function ensureSourceLocator(program: AnyNode, obj: AnyNode, warnings: string[]): boolean {
-  const pluginsProp = findProp(obj, "plugins");
-  const pluginsVal = pluginsProp?.value as AnyNode | undefined;
-  if (!pluginsVal || pluginsVal.type !== "ArrayExpression") {
-    warnings.push("no plugins array found — add sourceLocator() manually");
-    return false;
-  }
-  let mutated = false;
-
-  const elements = pluginsVal.elements as AnyNode[];
-  const alreadyPlugin = elements.some(
-    (el) =>
-      el?.type === "CallExpression" &&
-      (el.callee as AnyNode | undefined)?.type === "Identifier" &&
-      (el.callee as AnyNode).name === "sourceLocator",
-  );
-  if (!alreadyPlugin) {
-    elements.unshift(b.callExpression(b.identifier("sourceLocator"), []) as unknown as AnyNode);
-    mutated = true;
-  }
-
-  const body = program.body as AnyNode[];
-  const hasImport = body.some(
-    (n) => n.type === "ImportDeclaration" && (n.source as AnyNode | undefined)?.value === SOURCE_LOCATOR_MODULE,
-  );
-  if (!hasImport) {
-    const decl = b.importDeclaration(
-      [b.importSpecifier(b.identifier("sourceLocator"))],
-      b.stringLiteral(SOURCE_LOCATOR_MODULE),
-    ) as unknown as AnyNode;
-    let lastImport = -1;
-    body.forEach((n, i) => {
-      if (n.type === "ImportDeclaration") lastImport = i;
-    });
-    body.splice(lastImport + 1, 0, decl);
-    mutated = true;
-  }
-  return mutated;
-}
-
 // --- public entry ----------------------------------------------------------
 
 export function transformViteConfig(source: string, plan: InitTransformPlan): TransformResult {
@@ -281,7 +270,7 @@ export function transformViteConfig(source: string, plan: InitTransformPlan): Tr
   const warnings: string[] = [];
   let changed = false;
 
-  if (plan.devSourcemap) changed = ensureCssDevSourcemap(obj, warnings) || changed;
+  if (plan.cssSync) changed = ensureCssSyncPlugin(program, obj, warnings) || changed;
 
   const entries: { name: string; node: AnyNode }[] = [];
   if (plan.emotion) {
@@ -306,8 +295,6 @@ export function transformViteConfig(source: string, plan: InitTransformPlan): Tr
     });
   }
   if (entries.length > 0) changed = ensureBabelPlugins(obj, entries, warnings) || changed;
-
-  if (plan.sourceLocator) changed = ensureSourceLocator(program, obj, warnings) || changed;
 
   if (!changed) return { source, changed: false, warnings };
 

@@ -7,11 +7,13 @@ import { EmotionButton } from "./components/EmotionButton";
 import { StyledBadge } from "./components/StyledBadge";
 import { TailwindHero } from "./components/TailwindHero";
 import { StaticBlock } from "./components/StaticBlock";
+import { instrumentedEls, srcLoc } from "./test/srcLoc";
 
 /**
  * Spot-checks that the source-locator vite/babel plugin (@css-sync/babel-
- * plugin-source-locator) actually injects data-source-file/line/component
- * onto rendered host elements in dev, for every tier's component.
+ * plugin-source-locator) actually records each rendered host element's source
+ * location on an off-DOM `__srcLoc` property (file/line/component) in dev, for
+ * every tier's component — the same property the extension reads over CDP.
  */
 describe("source-locator instrumentation", () => {
   it.each([
@@ -20,32 +22,33 @@ describe("source-locator instrumentation", () => {
     { Component: ScssPanel, file: "src/components/ScssPanel.tsx", name: "ScssPanel" },
     { Component: TailwindHero, file: "src/components/TailwindHero.tsx", name: "TailwindHero" },
     { Component: StaticBlock, file: "src/components/StaticBlock.tsx", name: "StaticBlock" },
-  ])("$name renders host elements tagged with its own data-source-file", ({ Component, file, name }) => {
+  ])("$name records its own source location on every host element's __srcLoc", ({ Component, file, name }) => {
     const { container } = render(<Component />);
-    const tagged = container.querySelectorAll("[data-source-file]");
+    const tagged = instrumentedEls(container);
 
     expect(tagged.length).toBeGreaterThan(0);
     tagged.forEach((el) => {
-      expect(el).toHaveAttribute("data-source-file", file);
-      expect(el).toHaveAttribute("data-source-component", name);
+      const loc = srcLoc(el);
+      expect(loc?.dataSourceFile).toBe(file);
+      expect(loc?.dataSourceComponent).toBe(name);
     });
   });
 
-  it("EmotionButton has no raw host JSX tags, so source-locator has nothing to stamp (by design)", () => {
+  it("EmotionButton has no raw host JSX tags, so source-locator has nothing to record (by design)", () => {
     // EmotionButton's JSX only uses capitalized @emotion/styled component
     // tags (<Wrap>, <StyledButton>, <ClickCount>) — the babel plugin only
     // instruments lowercase host elements in the JSX *source*, so this tier
     // is (correctly) resolved via emotion's own sourcemap, not source-locator.
     const { container } = render(<EmotionButton />);
-    expect(container.querySelectorAll("[data-source-file]").length).toBe(0);
+    expect(instrumentedEls(container).length).toBe(0);
   });
 
-  it("StyledBadge has no raw host JSX tags, so source-locator has nothing to stamp (by design)", () => {
+  it("StyledBadge has no raw host JSX tags, so source-locator has nothing to record (by design)", () => {
     // Same reasoning as EmotionButton: StyledBadge's JSX only uses
     // capitalized styled-components tags (<Pill>, <Dot>) — this tier
     // resolves through babel-plugin-styled-components' own sourcemap
     // (displayName + fileName + sourceMap), not source-locator.
     const { container } = render(<StyledBadge />);
-    expect(container.querySelectorAll("[data-source-file]").length).toBe(0);
+    expect(instrumentedEls(container).length).toBe(0);
   });
 });

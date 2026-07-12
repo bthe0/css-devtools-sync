@@ -163,28 +163,45 @@ describe("detectStack — css-in-js + tailwind + react plugin", () => {
   });
 });
 
-describe("detectStack — meta-framework detection", () => {
-  // css-sync init v1 targets plain Vite + React. Meta-frameworks own their own
-  // build/config (and mostly aren't React), so they're detected and skipped
-  // rather than mis-onboarded. A React framework with its own vite config
-  // (Remix, Next) is still a framework here — v1 doesn't auto-edit those.
+describe("detectStack — framework detection", () => {
+  // Frameworks split two ways. BUILD-OWNING ones (Next/Nuxt/Astro/SvelteKit/
+  // Remix/SolidStart) own their build+config → reported with ownsBuild=true so
+  // init skips. VITE-PLUGIN ones (Vue/Svelte/Qwik) are plain Vite apps with a
+  // user-editable plugins array → ownsBuild=false so init onboards them.
   it.each([
-    ["next", { next: "16.0.0" }, "Next.js"],
-    ["nuxt", { nuxt: "^3.0.0" }, "Nuxt"],
-    ["astro", { astro: "^4.0.0" }, "Astro"],
-    ["@sveltejs/kit", { "@sveltejs/kit": "^2.0.0" }, "SvelteKit"],
-    ["@remix-run/dev", { "@remix-run/dev": "^2.0.0" }, "Remix"],
-    ["@builder.io/qwik", { "@builder.io/qwik": "^1.0.0" }, "Qwik"],
-    ["@solidjs/start", { "@solidjs/start": "^1.0.0" }, "SolidStart"],
-    ["vue (bare)", { vue: "^3.0.0" }, "Vue"],
-  ])("flags %s as framework %s", (_label, dep, expected) => {
+    ["next", { next: "16.0.0" }, "Next.js", true],
+    ["nuxt", { nuxt: "^3.0.0" }, "Nuxt", true],
+    ["astro", { astro: "^4.0.0" }, "Astro", true],
+    ["@sveltejs/kit", { "@sveltejs/kit": "^2.0.0" }, "SvelteKit", true],
+    ["@remix-run/dev", { "@remix-run/dev": "^2.0.0" }, "Remix", true],
+    ["@solidjs/start", { "@solidjs/start": "^1.0.0" }, "SolidStart", true],
+    ["vue (bare)", { vue: "^3.0.0" }, "Vue", false],
+    ["svelte (bare)", { svelte: "^5.0.0" }, "Svelte", false],
+    ["@builder.io/qwik", { "@builder.io/qwik": "^1.0.0" }, "Qwik", false],
+  ])("flags %s as framework %s (ownsBuild=%s)", (_label, dep, expected, ownsBuild) => {
     const root = makeRepo({ "package.json": PKG(dep, { vite: "^5.0.0" }) });
-    expect(detectStack(root).framework).toBe(expected);
+    const r = detectStack(root);
+    expect(r.framework).toBe(expected);
+    expect(r.frameworkOwnsBuild).toBe(ownsBuild);
   });
 
-  it("a framework marker suppresses the vite-dep bundler fallback (no vite.config)", () => {
+  it("@sveltejs/kit wins over the bare svelte marker (priority order)", () => {
+    const root = makeRepo({ "package.json": PKG({ "@sveltejs/kit": "^2.0.0", svelte: "^5.0.0" }, { vite: "^5.0.0" }) });
+    const r = detectStack(root);
+    expect(r.framework).toBe("SvelteKit");
+    expect(r.frameworkOwnsBuild).toBe(true);
+  });
+
+  it("a build-owning framework marker suppresses the vite-dep bundler fallback (no vite.config)", () => {
     const root = makeRepo({ "package.json": PKG({ nuxt: "^3.0.0" }, { vite: "^5.0.0" }) });
     expect(detectStack(root).bundler).toBe("unknown");
+  });
+
+  it("a Vite-plugin framework does NOT suppress the vite-dep fallback (onboardable)", () => {
+    const root = makeRepo({ "package.json": PKG({ vue: "^3.4.0" }, { vite: "^5.0.0" }) });
+    const r = detectStack(root);
+    expect(r.bundler).toBe("vite");
+    expect(r.frameworkOwnsBuild).toBe(false);
   });
 
   it("still finds the vite.config for a framework that ships one (SvelteKit)", () => {

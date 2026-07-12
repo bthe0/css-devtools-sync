@@ -64,7 +64,7 @@ describe("runInit — confirm-gated write", () => {
     expect(out.written).toBe(true);
     expect(the.writes).toHaveLength(1);
     const [, target, content] = the.writes[0]!;
-    expect(content).toMatch(/devSourcemap:\s*true/);
+    expect(content).toMatch(/cssSync\(\)/);
     // the write is jailed-through-the-injected-writer with the config path
     expect(path.resolve(root, target)).toBe(path.join(root, "vite.config.ts"));
   });
@@ -103,9 +103,10 @@ describe("runInit — never writes for a non-ready status", () => {
 
   it("up-to-date → no write", async () => {
     const root = makeRepo({
-      "package.json": PKG({}, { vite: "^5.0.0" }),
-      "vite.config.ts": `import { defineConfig } from "vite";
-export default defineConfig({ css: { devSourcemap: true } });
+      "package.json": PKG({}, { vite: "^5.0.0", "@css-sync/vite": "^0.1.0" }),
+      "vite.config.ts": `import { cssSync } from "@css-sync/vite";
+import { defineConfig } from "vite";
+export default defineConfig({ plugins: [cssSync()] });
 `,
     });
     const out = await runInit(io(root));
@@ -148,7 +149,7 @@ describe("renderPlan — human output", () => {
     const root = readyRepo();
     const text = renderPlan(planInit(root));
     expect(text).toContain("vite.config.ts");
-    expect(text).toContain("devSourcemap");
+    expect(text).toContain("cssSync");
   });
 
   it("lists required dev deps with an install hint", () => {

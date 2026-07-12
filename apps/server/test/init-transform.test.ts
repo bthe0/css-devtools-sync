@@ -1,8 +1,9 @@
 // init-transform.test.ts — `css-sync init` AST edits on a vite config.
 //
-// transformViteConfig performs recast-preserving edits: set css.devSourcemap,
-// inject emotion / styled-components babel plugins into the react() block, and
-// prepend a sourceLocator() plugin (+ its import). Contract:
+// transformViteConfig performs recast-preserving edits: prepend a cssSync()
+// plugin (+ its @css-sync/vite import) — the drop-in that boots the CSS
+// sourcemap, mounts the apply engine, and stamps JSX — and inject emotion /
+// styled-components babel plugins into the react() block. Contract:
 //   - idempotent: re-running produces byte-identical output (no double-add).
 //   - fail-closed: never emit source that doesn't re-parse; when a sub-edit
 //     can't be applied safely it's a warning, not a corruption.
@@ -21,10 +22,9 @@ function assertParses(source: string): void {
 }
 
 const PLAN = (over: Partial<InitTransformPlan> = {}): InitTransformPlan => ({
-  devSourcemap: true,
+  cssSync: true,
   emotion: false,
   styledComponents: false,
-  sourceLocator: false,
   ...over,
 });
 
@@ -36,35 +36,26 @@ export default defineConfig({
 });
 `;
 
-describe("transformViteConfig — css.devSourcemap", () => {
-  it("adds a css block with devSourcemap:true when css is absent", () => {
+describe("transformViteConfig — cssSync() plugin", () => {
+  it("prepends cssSync() and adds its @css-sync/vite import", () => {
     const { source, changed } = transformViteConfig(BARE, PLAN());
     expect(changed).toBe(true);
-    expect(source).toMatch(/devSourcemap:\s*true/);
+    expect(source).toContain(`import { cssSync } from "@css-sync/vite"`);
+    expect(source).toMatch(/cssSync\(\)/);
+    // prepended before react() in the plugins array
+    expect(source.indexOf("cssSync()")).toBeLessThan(source.indexOf("react("));
     assertParses(source);
   });
 
-  it("adds devSourcemap to an existing css block without clobbering siblings", () => {
+  it("creates a plugins array when the config has none", () => {
     const input = `import { defineConfig } from "vite";
-export default defineConfig({
-  css: { modules: { localsConvention: "camelCase" } },
-});
-`;
-    const { source } = transformViteConfig(input, PLAN());
-    expect(source).toMatch(/devSourcemap:\s*true/);
-    expect(source).toContain("localsConvention"); // sibling preserved
-    assertParses(source);
-  });
-
-  it("is idempotent when devSourcemap:true already present (no change)", () => {
-    const input = `import { defineConfig } from "vite";
-export default defineConfig({
-  css: { devSourcemap: true },
-});
+export default defineConfig({ css: { modules: { localsConvention: "camelCase" } } });
 `;
     const { source, changed } = transformViteConfig(input, PLAN());
-    expect(changed).toBe(false);
-    expect(source).toBe(input);
+    expect(changed).toBe(true);
+    expect(source).toMatch(/plugins:\s*\[cssSync\(\)\]/);
+    expect(source).toContain("localsConvention"); // sibling preserved
+    assertParses(source);
   });
 
   it("works with a bare object-literal default export (no defineConfig wrapper)", () => {
@@ -73,8 +64,25 @@ export default defineConfig({
 };
 `;
     const { source } = transformViteConfig(input, PLAN());
-    expect(source).toMatch(/devSourcemap:\s*true/);
+    expect(source).toMatch(/cssSync\(\)/);
+    expect(source).toContain(`import { cssSync } from "@css-sync/vite"`);
     assertParses(source);
+  });
+
+  it("is idempotent — no duplicate import or plugin entry", () => {
+    const once = transformViteConfig(BARE, PLAN()).source;
+    const twice = transformViteConfig(once, PLAN()).source;
+    expect(twice).toBe(once);
+    expect(once.match(/@css-sync\/vite/g)).toHaveLength(1);
+    expect(once.match(/cssSync\(\)/g)).toHaveLength(1);
+  });
+
+  it("warns (does not throw) when plugins isn't an array literal", () => {
+    const input = `import { defineConfig } from "vite";
+export default defineConfig({ plugins: myPlugins });
+`;
+    const { warnings } = transformViteConfig(input, PLAN());
+    expect(warnings.some((w) => /plugins.*array/i.test(w))).toBe(true);
   });
 });
 
@@ -134,27 +142,8 @@ export default defineConfig({ plugins: [] });
 `;
     const { source, warnings } = transformViteConfig(input, PLAN({ emotion: true }));
     expect(warnings.some((w) => /react\(\)/.test(w))).toBe(true);
-    expect(source).toMatch(/devSourcemap:\s*true/); // css edit still applied
+    expect(source).toMatch(/cssSync\(\)/); // cssSync edit still applied
     assertParses(source);
-  });
-});
-
-describe("transformViteConfig — sourceLocator plugin", () => {
-  it("prepends sourceLocator() and adds its import", () => {
-    const { source } = transformViteConfig(BARE, PLAN({ sourceLocator: true }));
-    expect(source).toContain("@css-sync/babel-plugin-source-locator/vite");
-    expect(source).toMatch(/sourceLocator\(\)/);
-    // prepended before react() in the plugins array
-    expect(source.indexOf("sourceLocator()")).toBeLessThan(source.indexOf("react("));
-    assertParses(source);
-  });
-
-  it("is idempotent — no duplicate import or plugin entry", () => {
-    const once = transformViteConfig(BARE, PLAN({ sourceLocator: true })).source;
-    const twice = transformViteConfig(once, PLAN({ sourceLocator: true })).source;
-    expect(twice).toBe(once);
-    expect(once.match(/babel-plugin-source-locator\/vite/g)).toHaveLength(1);
-    expect(once.match(/sourceLocator\(\)/g)).toHaveLength(1);
   });
 });
 
@@ -173,22 +162,12 @@ const config = defineConfig({});
     expect(() => transformViteConfig(input, PLAN())).toThrow(SkipChangeError);
   });
 
-  it("throws SkipChangeError when css is present but not an object literal", () => {
-    const input = `import { defineConfig } from "vite";
-export default defineConfig({ css: someCssConfig });
-`;
-    expect(() => transformViteConfig(input, PLAN())).toThrow(SkipChangeError);
-  });
-
   it("full plan on a realistic config parses and applies everything", () => {
-    const { source } = transformViteConfig(
-      BARE,
-      PLAN({ emotion: true, styledComponents: true, sourceLocator: true }),
-    );
-    expect(source).toMatch(/devSourcemap:\s*true/);
+    const { source } = transformViteConfig(BARE, PLAN({ emotion: true, styledComponents: true }));
+    expect(source).toMatch(/cssSync\(\)/);
+    expect(source).toContain("@css-sync/vite");
     expect(source).toContain("@emotion/babel-plugin");
     expect(source).toContain("babel-plugin-styled-components");
-    expect(source).toContain("sourceLocator()");
     assertParses(source);
   });
 });

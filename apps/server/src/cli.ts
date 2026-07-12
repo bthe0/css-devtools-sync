@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // cli.ts — the `css-sync` bin. `css-sync init` onboards the tool onto a Vite
-// project: detect the stack, preview a config diff, and (only on confirm) write
-// css.devSourcemap + css-in-js babel plugins into the vite config.
+// project: detect the stack, preview a config diff, and (only on confirm) insert
+// the cssSync() plugin (+ optional css-in-js babel plugins) into the vite config.
 //
 // The interactive shell (readline / console / jailed write) is thin wiring.
 // The tested core is renderPlan (InitPlan -> text) and runInit (plan -> gated

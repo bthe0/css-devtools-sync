@@ -4,10 +4,11 @@
 // vite config and returns a unified diff to preview; it writes NOTHING — the
 // CLI owns the confirm+write step (the irreversible-edit safety gate).
 //
-// Plugin injection is GATED on the plugin package already being installed:
-// wiring a config to reference a package the repo hasn't got would break
-// `vite dev`, so a wanted-but-missing plugin becomes a "install this and
-// re-run" required-dep note instead of a config edit.
+// The core edit inserts cssSync() (from @css-sync/vite) into the config's
+// plugins array — always, since that's the whole point of onboarding; a note
+// tells the user to install @css-sync/vite when it's missing. Optional css-in-js
+// babel plugins (emotion/styled) ARE gated on their package being installed —
+// referencing an uninstalled optional plugin would break `vite dev`.
 import { createTwoFilesPatch } from "diff";
 import { SkipChangeError } from "../errors.js";
 import { toWorkspaceRelative } from "../workspace.js";
@@ -59,15 +60,17 @@ function base(report: StackReport, over: Partial<InitPlan> & { status: InitStatu
 export function planInit(workspaceRoot: string): InitPlan {
   const report = detectStack(workspaceRoot);
 
-  // Meta-frameworks own their build + config (and mostly aren't React). v1
-  // targets plain Vite + React, so detect and skip rather than auto-edit a
-  // framework-managed config and falsely claim the DevTools sync is wired up.
-  if (report.framework !== null) {
+  // Build-owning frameworks (Next/Nuxt/Astro/SvelteKit/Remix/SolidStart) own
+  // their build + config, so detect and skip rather than auto-edit a
+  // framework-managed config and falsely claim the sync is wired up. Vite-plugin
+  // frameworks (Vue/Svelte/Qwik) have a user-editable plugins array and fall
+  // through to the normal cssSync() insertion below.
+  if (report.framework !== null && report.frameworkOwnsBuild) {
     return base(report, {
       status: "framework",
       message:
-        `${report.framework} detected — css-sync init v1 targets plain Vite + React apps and won't edit a framework-managed config. ` +
-        "Skipped. You can still enable CSS dev sourcemaps manually in your config.",
+        `${report.framework} detected — css-sync init won't edit a framework-managed build config. ` +
+        "Skipped. Add the cssSync() plugin to your build manually if it exposes a Vite plugins array.",
     });
   }
 
@@ -75,7 +78,7 @@ export function planInit(workspaceRoot: string): InitPlan {
     return base(report, {
       status: "no-vite",
       message:
-        "css-sync init v1 supports Vite projects only — no Vite build detected (a vite dep from vitest or a framework like Next/Astro doesn't count).",
+        "css-sync init supports Vite projects only — no Vite build detected (a vite dep from vitest or a framework like Next/Astro doesn't count).",
     });
   }
   if (!report.configPath || report.configSource === null) {
@@ -112,18 +115,26 @@ export function planInit(workspaceRoot: string): InitPlan {
 
   const injectEmotion = wantEmotion && emotionPluginInstalled && report.hasReactPlugin;
   const injectStyled = wantStyled && styledPluginInstalled && report.hasReactPlugin;
-  // Tier-3 JSX stamping: only when css-sync's own locator plugin is installed.
-  const injectSourceLocator = deps.has("@css-sync/babel-plugin-source-locator");
+
+  // cssSync() is the core onboarding edit — always inserted. It references
+  // @css-sync/vite (the drop-in engine plugin); when the target repo hasn't
+  // installed it yet, the config edit + this required-dep note together are the
+  // actionable step ("add the plugin line, install the package").
+  if (!deps.has("@css-sync/vite")) {
+    requiredDevDeps.push({
+      pkg: "@css-sync/vite",
+      reason: "the css-sync dev-server plugin (CSS sourcemap + apply engine + JSX stamping)",
+    });
+  }
 
   const transformPlan: InitTransformPlan = {
-    devSourcemap: true,
+    cssSync: true,
     emotion: injectEmotion,
     styledComponents: injectStyled,
-    sourceLocator: injectSourceLocator,
   };
 
   const tailwindNote = report.tailwind
-    ? "Tailwind detected — skipped in v1 (its className path is assisted-only). For JSX host stamping, install @css-sync/babel-plugin-source-locator and re-run."
+    ? "Tailwind detected — its className path is assisted-only (cssSync stamps JSX hosts; utility-class edits stay manual in v1)."
     : null;
 
   let result;
