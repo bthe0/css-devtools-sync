@@ -1,0 +1,16 @@
+{
+  "name": "@dev-sync/example-nuxt-app",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev",
+    "build": "nuxt build",
+    "preview": "nuxt preview"
+  },
+  "dependencies": {
+    "@dev-sync/vite": "workspace:*",
+    "nuxt": "^4.4.8",
+    "vue": "^3.5.39"
+  }
+}

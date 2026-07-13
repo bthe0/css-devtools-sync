@@ -7,7 +7,7 @@ import { jailResolve, resolveExistingFile } from "./workspace.js";
 export const isJsLike = (file: string): boolean => /\.(?:[cm]?[jt]sx?)$/i.test(file);
 export const isCssLike = (file: string): boolean => /\.(?:css|scss|sass|less|styl)$/i.test(file);
 /** Single-file-component sources whose <style> block(s) apply-sfc.ts edits in place. */
-export const isSfcLike = (file: string): boolean => /\.(?:vue|svelte)$/i.test(file);
+export const isSfcLike = (file: string): boolean => /\.(?:vue|svelte|astro)$/i.test(file);
 
 /**
  * Which PostCSS syntax to parse/print a target file with. `.scss`/`.sass`

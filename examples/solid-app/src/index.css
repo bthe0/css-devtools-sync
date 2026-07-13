@@ -1,0 +1,24 @@
+:root {
+  --text: #6b6375;
+  --text-h: #08060d;
+  --bg: #fff;
+  --border: #e5e4e7;
+  font-family: system-ui, sans-serif;
+  color-scheme: light dark;
+}
+
+body {
+  margin: 0;
+  color: var(--text);
+  background: var(--bg);
+}
+
+.app {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+h1 {
+  color: var(--text-h);
+}

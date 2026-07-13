@@ -33,6 +33,8 @@ export interface StyleBlock {
 const VUE_SCOPED_ATTR_RE = /\[data-v-[0-9a-f]+\]/gi;
 /** Svelte's scoping class suffix appended to compiled selectors, e.g. `.svelte-1a2b3c`. */
 const SVELTE_SCOPED_CLASS_RE = /\.svelte-[0-9a-z]+/gi;
+/** Astro's scoping attribute selector appended to compiled selectors, e.g. `[data-astro-cid-yk4hkwyg]`. */
+const ASTRO_SCOPED_ATTR_RE = /\[data-astro-cid-[0-9a-z]+\]/gi;
 
 /**
  * Reduce a SERVED (scoped) selector back to what the source `<style>` block
@@ -49,6 +51,7 @@ export function stripScopedAttr(selector: string): string {
   return selector
     .replace(VUE_SCOPED_ATTR_RE, "")
     .replace(SVELTE_SCOPED_CLASS_RE, "")
+    .replace(ASTRO_SCOPED_ATTR_RE, "")
     .replace(/\s+/g, " ")
     .trim();
 }

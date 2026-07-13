@@ -634,15 +634,37 @@ function addChange(change) {
   }
 
   changes.set(key, change);
-  // Deliberately do NOT arm the idle autosave here. A save fired mid-edit-session
-  // triggers Next's CSS HMR, which swaps the <link> and detaches the CSSStyleSheet
-  // DevTools is editing — every subsequent edit to the same rule then reverts to a
-  // dead sheet until reselect. onSelectionChanged flushes on deselect instead, so
-  // the swap lands BETWEEN edit sessions and continued editing of one rule stays on
-  // the live sheet. (A client-side ?v= strip can't fix this: the initial SSR'd
-  // document is unstripped, so the first post-save swap always mismatches.)
+  // Idle-autosave re-arm is GATED on sheet type. The mid-edit-save→revert hazard
+  // is specific to Next's React-19 <link> hoisting: a save bumps `?v=`, React
+  // swaps the <link>, and the CSSStyleSheet DevTools is editing detaches — every
+  // subsequent edit to the same rule then reverts to a dead sheet until reselect.
+  // (A client-side ?v= strip can't fix it: the initial SSR'd document is
+  // unstripped, so the first post-save swap always mismatches.) For those sheets
+  // we stay deselect-only (onSelectionChanged flushes), landing the swap BETWEEN
+  // edit sessions. But every Vite framework (React-Vite/Vue/Svelte/Astro/Solid/
+  // vanilla-extract) serves CSS as an inline <style> that HMR updates IN PLACE
+  // (same sheet object) — no <link>, nothing to swap or detach — so a mid-edit
+  // save is safe, and the post-save settle guard (1350) already swallows the
+  // in-place HMR bounce. Re-arm idle-autosave only for those.
+  if (isViteInlineSheetChange(change)) scheduleAutosave();
   postPendingSnapshot();
   notifyPending();
+}
+
+/**
+ * Is this change targeting a Vite-served inline <style> sheet (safe to
+ * idle-autosave), as opposed to an external <link href> sheet (Next's
+ * swap-prone case, deselect-only)? The poller stamps
+ * `styleSheet.id = "eval:" + sheet.key`, where sheet.key is a viteId (a dev
+ * module path), a query-stripped href (`http(s)://…`), or `"inline:N"`. Only the
+ * href case is a <link> React-19 can hoist/swap; a viteId or inline:N is always
+ * an inline <style> HMR updates in place. DOM ops (set-text / promote-inline-
+ * style) carry no styleSheet → non-arming (their tiers flush on deselect).
+ */
+function isViteInlineSheetChange(change) {
+  const id = change && change.styleSheet && change.styleSheet.id;
+  if (typeof id !== "string") return false;
+  return !/^https?:\/\//.test(id.replace(/^eval:/, ""));
 }
 
 // ---------------------------------------------------------------------------
@@ -709,7 +731,17 @@ const SERIALIZE_SHEETS = `(() => {
     const hrefKey = sheet.href ? sheet.href.split("?")[0] : "";
     out.push({
       key: viteId || hrefKey || ("inline:" + i),
-      sourceURL: sheet.href || "",
+      // Prefer href (external <link>); else fall back to the Vite dev id so the
+      // server can resolve the source. An inline <style> has NO href, and some
+      // frameworks emit NO inline sourceMappingURL either — Astro's scoped
+      // <style> and vanilla-extract's virtual .vanilla.css both do. Without this,
+      // the viteId (the real module path, e.g. /…/Card.astro?astro&type=style&…)
+      // survived only in \`key\`, which resolve.ts never reads, so the change died
+      // with "source file not found". The server strips the ?query and
+      // progressive-strips the abs prefix (resolveExistingFile), so the raw
+      // viteId resolves cleanly. Sheets WITH an inline map (Vue/Svelte/React-Vite)
+      // are unaffected — the sourcemap pass still wins first.
+      sourceURL: sheet.href || viteId || "",
       sourceMapURL: sourceMapURL,
       mappable: mappable,
       styled: styled,

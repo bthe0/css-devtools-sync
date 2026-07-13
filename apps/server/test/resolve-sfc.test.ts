@@ -36,10 +36,12 @@ function dataUriSourceMap(source: string, line: number, column: number): string 
 }
 
 describe("isSfcLike", () => {
-  it("recognizes .vue and .svelte, case-insensitively", () => {
+  it("recognizes .vue, .svelte and .astro, case-insensitively", () => {
     expect(isSfcLike("src/Card.vue")).toBe(true);
     expect(isSfcLike("src/Card.VUE")).toBe(true);
     expect(isSfcLike("src/Widget.svelte")).toBe(true);
+    expect(isSfcLike("src/Card.astro")).toBe(true);
+    expect(isSfcLike("src/Card.ASTRO")).toBe(true);
   });
 
   it("rejects plain css/js/other extensions", () => {
@@ -141,6 +143,46 @@ describe("resolveTargetForChange — SFC via sourceURL compiled fallback", () =>
     expect(target).not.toBeNull();
     expect(target?.kind).toBe("sfc");
     expect(target?.file.endsWith("Card.svelte")).toBe(true);
+    expect(target?.viaSourceMap).toBe(false);
+  });
+});
+
+describe("resolveTargetForChange — Astro mapless inline <style> via viteId sourceURL", () => {
+  // Astro's scoped <style> is served as an inline <style data-vite-dev-id="…">
+  // with NO href and NO inline sourceMappingURL. The extension now forwards the
+  // viteId (a full module path WITH a ?astro&type=style&… query) as sourceURL —
+  // the only resolution signal. This is the exact path that regressed as "source
+  // file not found": resolveExistingFile must strip the query + progressive-strip
+  // the abs prefix, and the `if (compiled)` fallback must classify .astro as sfc.
+  const RELPATH = "src/components/Card.astro";
+  const ASTRO_SFC = [
+    "---",
+    'const title = "Hi";',
+    "---",
+    '<article class="card"><h2>{title}</h2></article>',
+    "",
+    "<style>",
+    "  .card { padding: 20px; }",
+    "</style>",
+    "",
+  ].join("\n");
+
+  it("classifies a mapless .astro inline sheet (viteId-with-query sourceURL, no map) as kind:\"sfc\"", () => {
+    const { root } = makeWorkspace(RELPATH, ASTRO_SFC);
+    const target = resolveTargetForChange(
+      root,
+      {
+        id: "eval:" + `${root}/${RELPATH}?astro&type=style&index=0&`,
+        // The viteId is an absolute fs path + Astro's style query — no map at all.
+        sourceURL: `${root}/${RELPATH}?astro&type=style&index=0&`,
+        sourceMapURL: "",
+        origin: "regular",
+      },
+      null,
+    );
+    expect(target).not.toBeNull();
+    expect(target?.kind).toBe("sfc");
+    expect(target?.file.endsWith("Card.astro")).toBe(true);
     expect(target?.viaSourceMap).toBe(false);
   });
 });

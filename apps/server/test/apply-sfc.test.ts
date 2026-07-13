@@ -27,6 +27,11 @@ describe("stripScopedAttr", () => {
     expect(stripScopedAttr(".card.svelte-1a2b3c")).toBe(".card");
   });
 
+  it("strips an astro scoping attribute", () => {
+    expect(stripScopedAttr(".card[data-astro-cid-yk4hkwyg]")).toBe(".card");
+    expect(stripScopedAttr(".card-title[data-astro-cid-yk4hkwyg]")).toBe(".card-title");
+  });
+
   it("passes plain selectors through unchanged", () => {
     expect(stripScopedAttr(".card")).toBe(".card");
     expect(stripScopedAttr(".card .title")).toBe(".card .title");
@@ -289,6 +294,47 @@ describe("applySfcChange", () => {
     );
     expect(css).toContain("padding: 9px;");
     expect(css).toContain(".card { padding: 1px; }"); // first block untouched
+  });
+
+  it("edits an .astro <style> block, leaving frontmatter + template byte-identical", () => {
+    const astro = [
+      "---",
+      'const title = "Hi";',
+      "---",
+      '<article class="card">',
+      '  <h3 class="card-title">{title}</h3>',
+      "</article>",
+      "",
+      "<style>",
+      ".card {",
+      "  padding: 20px;",
+      "  border-radius: 8px;",
+      "}",
+      ".card-title {",
+      "  color: #2563eb;",
+      "}",
+      "</style>",
+      "",
+    ].join("\n");
+
+    const { css } = applySfcChange(
+      astro,
+      {
+        op: "modify",
+        styleSheet: SHEET,
+        selector: ".card[data-astro-cid-yk4hkwyg]",
+        property: "padding",
+        oldValue: "20px",
+        newValue: "40px",
+      },
+      {},
+    );
+
+    expect(css).toContain("padding: 40px;");
+    expect(css).not.toContain("padding: 20px;");
+    expect(css).toContain("color: #2563eb;"); // sibling rule untouched
+    // Frontmatter + template (everything before <style>) is byte-identical.
+    expect(css.slice(0, css.indexOf("<style"))).toBe(astro.slice(0, astro.indexOf("<style")));
   });
 
   it("throws SkipChangeError when the sfc has no <style> block at all", () => {
