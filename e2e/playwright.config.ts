@@ -6,6 +6,9 @@ const root = path.resolve(import.meta.dirname, "..");
 
 const VITE = "http://localhost:5299";
 const NEXT = "http://localhost:4300";
+const VUE = "http://localhost:5399";
+const SVELTE = "http://localhost:5499";
+const VE = "http://localhost:5599";
 
 // The MV3 extension only injects on localhost origins (manifest `matches`), and
 // Chromium loads unpacked extensions only under a persistent context — so the
@@ -23,6 +26,9 @@ export default defineConfig({
   projects: [
     { name: "vite", use: { baseURL: VITE } },
     { name: "next", use: { baseURL: NEXT } },
+    { name: "vue", use: { baseURL: VUE } },
+    { name: "svelte", use: { baseURL: SVELTE } },
+    { name: "ve", use: { baseURL: VE } },
   ],
   webServer: [
     {
@@ -40,6 +46,30 @@ export default defineConfig({
       url: NEXT,
       reuseExistingServer: !process.env.CI,
       timeout: 180_000,
+      stdout: "pipe",
+    },
+    {
+      command: "pnpm --filter vue-app dev",
+      cwd: root,
+      url: VUE,
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+      stdout: "pipe",
+    },
+    {
+      command: "pnpm --filter @dev-sync/example-svelte-app dev",
+      cwd: root,
+      url: SVELTE,
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+      stdout: "pipe",
+    },
+    {
+      command: "pnpm --filter @dev-sync/example-ve-app dev",
+      cwd: root,
+      url: VE,
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
       stdout: "pipe",
     },
   ],

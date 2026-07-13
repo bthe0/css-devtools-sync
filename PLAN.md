@@ -55,10 +55,19 @@ referential no-op sourcemap (no line path). Flat props: camelCase↔kebab 1:1. N
       style(base,{...}) composition, computed keys, dynamic values, missing @media/selectors path.
 - [ ] 3f checkpoint commit.
 
-## Phase 4 — E2E per framework
-- [ ] playwright `projects[]` + `webServer[]` entries for vue/svelte/ve; specs seeded with a
-      hand-built CapturePayload matching what each framework actually serves; assert disk write.
-- [ ] checkpoint commit.
+## Phase 4 — E2E per framework  ✅ DONE
+- [x] playwright `projects[]` + `webServer[]` for vue(5399)/svelte(5499)/ve(5599) (config +30 -0,
+      shared settings + vite/next untouched). Specs discover the content-derived hash at RUNTIME
+      (fetch served CSS/module, regex it) — never hardcoded — then POST a `commit`-mode
+      CapturePayload and assert the DISK write + template/script byte-identical; restore in finally.
+      vue asserts mode:"sourcemap" (full-path sources loop), svelte mode:"postcss" (bare-sources
+      → compiled fallback), ve mode:"vanilla-extract". 15/15 green for the 3 projects, examples
+      clean after (restores verified).
+- [x] checkpoint commit.
+- ⚠️ PRE-EXISTING (NOT this program): `undo-keybind.spec.ts:57 [vite]` (React App.css disk-revert
+      via Cmd/Ctrl+Z→redo keypress) fails consistently — extension redo-keybind UI, zero overlap
+      with the server routing changes here. Same area as this session's earlier C-flight/redo work.
+      Flag for separate investigation; do not block the framework program on it.
 
 ## Phase 5 — docs + "more frameworks"
 - [ ] README table of supported frameworks. Propose (do NOT build unprompted) candidates:
