@@ -70,8 +70,15 @@ referential no-op sourcemap (no line path). Flat props: camelCase↔kebab 1:1. N
       Flag for separate investigation; do not block the framework program on it.
 
 ## Phase 5 — docs + "more frameworks"
-- [ ] README table of supported frameworks. Propose (do NOT build unprompted) candidates:
-      Astro, SolidStart, Qwik, Lit, Nuxt (Vue/Vite), SvelteKit. Get a pick before grinding more.
+- [x] README: Examples + Monorepo layout + per-tier table rows for the SFC tier (Vue/Svelte)
+      and the vanilla-extract tier; documented v1 VE scope-out. Shipped support only.
+- [ ] PROPOSAL surfaced to user (do NOT build unprompted) — candidates ranked by cost:
+      · SvelteKit / Nuxt — ride the EXISTING sfc tier (both are vite + vue/svelte plugins); cost =
+        example + e2e + init-detection check, likely no new server code. Cheapest.
+      · Lit — `css`\`\`\` tagged template → may ride the EXISTING cssinjs template tier; needs a probe.
+      · Astro — `.astro` `<style>` is its own compiler (not .vue/.svelte); NEW tier, real scope.
+      · SolidStart / Qwik — JSX; CSS-modules/cssinjs likely already covered, but scoped-style story
+        differs; probe-first. Get a user pick before grinding speculative tiers.
 
 ## Open decisions (defaulted; flip if user weighs in)
 1. WIP on `feat/framework-examples`, not `main` (checkpoint discipline). Merge when done.

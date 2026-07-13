@@ -102,7 +102,7 @@ export default createDevSyncHandler();
 
 ### Examples
 
-Runnable in [`examples/`](./examples): [`next-app`](./examples/next-app) (Next.js App Router, `next dev --webpack`, port 4300) and [`vite-react`](./examples/vite-react) (Vite + React, port 5299) — each demoing multiple styling tiers on one page.
+Runnable in [`examples/`](./examples): [`next-app`](./examples/next-app) (Next.js App Router, `next dev --webpack`, port 4300), [`vite-react`](./examples/vite-react) (Vite + React, port 5299), [`vue-app`](./examples/vue-app) (Vue 3 SFC, port 5399), [`svelte-app`](./examples/svelte-app) (Svelte 5, port 5499), and [`ve-app`](./examples/ve-app) (vanilla-extract `.css.ts`, port 5599) — each demoing multiple styling tiers on one page.
 
 ## Monorepo layout
 
@@ -123,6 +123,9 @@ apps/
 examples/
   next-app/                      Next.js App Router demo (next dev --webpack, port 4300)
   vite-react/                    Vite + React demo (port 5299)
+  vue-app/                       Vue 3 SFC demo — <style scoped> + <style module> (port 5399)
+  svelte-app/                    Svelte 5 demo — component-scoped <style> (port 5499)
+  ve-app/                        vanilla-extract demo — style({...}) in .css.ts (port 5599)
 e2e/                             @dev-sync/e2e — Playwright suite: loads the unpacked
                                  extension, drives the live examples end-to-end
 ```
@@ -150,6 +153,11 @@ Frameworks split three ways:
 | `EmotionButton` | Emotion `styled` | `css-*--EmotionButton*` classes | template literal in `EmotionButton.tsx` | `cssinjs` |
 | `TailwindHero` | Tailwind utilities | a utility class (e.g. `.p-8`) | `className` in `TailwindHero.tsx` (`p-8` → `p-[40px]`) | `classlist` |
 | `StaticBlock` | Static JSX text/attrs | literal text / `aria-label` / `title` | `StaticBlock.tsx` | markup set-text/set-attr |
+| `ScopedCard.vue` | Vue SFC `<style scoped>` | `.card[data-v-*]` scoped rules | the `<style>` block in `ScopedCard.vue` | `sourcemap` |
+| `Card.svelte` | Svelte component `<style>` | `.card.svelte-*` scoped rules | the `<style>` block in `Card.svelte` | `postcss` |
+| `card.css.ts` | vanilla-extract `style({...})` | `<file>_<export>__<hash>` classes (incl. `:hover` / `@media`) | the `style({...})` object in `card.css.ts` | `vanilla-extract` |
+
+The last three are the **SFC tier** (Vue/Svelte `.vue`/`.svelte` `<style>` blocks — edited in place, template/script byte-identical) and the **vanilla-extract tier** (`.css.ts` `style({...})` object literals — attribution by parsing the served debug class name, since VE emits no usable sourcemap). vanilla-extract v1 edits plain `style({...})` objects (flat + `selectors`/`@media` nesting); `styleVariants`, `recipe`, and array/multi-arg composition skip with a clear reason rather than guess.
 
 ## Local development
 
