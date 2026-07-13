@@ -118,12 +118,16 @@ let pausedForPanel = false;
 // ---------------------------------------------------------------------------
 
 const AUTOSAVE_KEY = "dev-sync:autosave";
-// Idle-after-edit is the primary save trigger again (see addChange), safe now
-// that the swap-prevention runtime keeps the edited CSSStyleSheet alive across
-// the save-triggered HMR. onSelectionChanged also flushes on deselect as a
-// backstop. Kept at ~1.2s so a burst of keystrokes coalesces into one save/HMR
-// rather than recompiling Next on every character.
-const AUTOSAVE_DEBOUNCE_MS = 1200;
+// Idle-after-edit autosave is NOT the primary trigger — onSelectionChanged
+// flushes on deselect instead. A save fires Next's CSS HMR, which bumps the
+// sheet's `?v=` → React swaps the <link> → detaches the CSSStyleSheet DevTools
+// is editing, reverting every subsequent edit to the same rule (proven: a
+// client fetch patch can't strip the initial SSR'd document, so the first
+// post-save swap always mismatches). Deferring to deselect lands the swap
+// BETWEEN edit sessions. This timer only backstops the poller's survivor
+// reapply; ~2.5s so a stop→resume on one property never trips a mid-session
+// save.
+const AUTOSAVE_DEBOUNCE_MS = 2500;
 let autosave = true; // default ON (overwritten by the stored pref on load)
 let autosaveTimer = null;
 
@@ -410,9 +414,6 @@ function connectPort() {
         hudStatus = "idle";
         void checkHealth();
         notifyPending();
-        // The page context is fresh (reload/HMR nav), so the main-world fetch
-        // patch was lost — reinstall the swap-prevention runtime.
-        injectNoSwapRuntime();
         break;
 
       case "change":
@@ -534,19 +535,29 @@ function formatEvalException(info) {
 // a genuinely new failure notifies again.
 let lastSelectionEvalError = null;
 
-function onSelectionChanged() {
-  // Flush pending edits for the element we're LEAVING before switching. Saving
-  // triggers Next's CSS HMR, which bumps the sheet's `?v=` → swaps the <link> →
-  // detaches the CSSStyleSheet DevTools is editing. A save fired mid-edit-session
-  // therefore breaks the NEXT edit to that same rule until the user reselects
-  // ("CSS changes stop working after a save"). Deferring the commit to the moment
-  // the user moves OFF the element means the swap lands BETWEEN edit sessions, not
-  // during one — so continued editing of one rule stays on the live sheet. (The
-  // idle backstop below is lengthened for the same reason: a rapid stop→resume on
-  // one property must not trip a mid-session save.)
+// The Elements-panel selection just changed. The edit the user made to the
+// element they're LEAVING may NOT be in `changes` yet: the 500ms CSS poller
+// hasn't necessarily run since the keystroke, so a naive flush here sees an
+// empty map and saves nothing — the user then has to hit the sync keybind by
+// hand ("deselect doesn't autosave"). Wait out any in-flight poll, force ONE
+// fresh capture (of both the CSSOM and the leaf-text/inline snapshots), THEN
+// flush, so moving off an element reliably persists its last edit.
+async function flushLeavingElement() {
+  if (!autosave || syncing || pausedForPanel) return;
+  if (cssPolling && cssPollPromise) await cssPollPromise;
+  await pollCss();
+  await pollElements(); // best-effort: also capture a pending set-text/inline edit
   if (autosave && !syncing && !pausedForPanel && changes.size > 0) {
     void syncToSource({ auto: true, toast: true });
   }
+}
+
+function onSelectionChanged() {
+  // Flush pending edits for the element we're LEAVING (see flushLeavingElement).
+  // Deferring the commit to deselect means the save→HMR→<link>-swap lands BETWEEN
+  // edit sessions, not during one, so continued editing of one rule stays on the
+  // live sheet ("CSS changes stop working after a save" is thus avoided).
+  void flushLeavingElement();
   chrome.devtools.inspectedWindow.eval(SELECTION_EVAL, (result, exceptionInfo) => {
     if (exceptionInfo && (exceptionInfo.isError || exceptionInfo.isException)) {
       const reason = formatEvalException(exceptionInfo);
@@ -623,15 +634,13 @@ function addChange(change) {
   }
 
   changes.set(key, change);
-  // Arm the idle autosave. This is safe ONLY because the swap-prevention runtime
-  // (injectNoSwapRuntime) keeps Next's CSS <link> — and thus the CSSStyleSheet
-  // DevTools is editing — ALIVE across the save-triggered HMR. Without it, a save
-  // fired mid-edit swaps the sheet out and DevTools reverts every subsequent edit
-  // to a dead sheet until reselect (the reason this arming was removed under the
-  // no-runtime "save on deselect only" compromise). Vite updates its <style> in
-  // place (same sheet object) so it was always safe there. onSelectionChanged
-  // still flushes on deselect as a backstop; the two triggers are complementary.
-  scheduleAutosave();
+  // Deliberately do NOT arm the idle autosave here. A save fired mid-edit-session
+  // triggers Next's CSS HMR, which swaps the <link> and detaches the CSSStyleSheet
+  // DevTools is editing — every subsequent edit to the same rule then reverts to a
+  // dead sheet until reselect. onSelectionChanged flushes on deselect instead, so
+  // the swap lands BETWEEN edit sessions and continued editing of one rule stays on
+  // the live sheet. (A client-side ?v= strip can't fix this: the initial SSR'd
+  // document is unstripped, so the first post-save swap always mismatches.)
   postPendingSnapshot();
   notifyPending();
 }
@@ -740,6 +749,8 @@ const cssPostSaveGuard = new Map();
 const POST_SAVE_SETTLE_MS = 2000;
 let cssPollTimer = null;
 let cssPolling = false;
+/** The in-flight pollCss() promise, so a deselect flush can await a running poll. */
+let cssPollPromise = null;
 
 /**
  * Recovered `sourceMappingURL` per served sheet URL (the versioned href, e.g.
@@ -773,12 +784,9 @@ async function recoverSheetMap(sourceURL) {
 }
 
 function pollCss() {
-  return new Promise((resolve) => {
-    if (cssPolling) {
-      resolve();
-      return;
-    }
-    cssPolling = true;
+  if (cssPolling) return cssPollPromise ?? Promise.resolve();
+  cssPolling = true;
+  cssPollPromise = new Promise((resolve) => {
     chrome.devtools.inspectedWindow.eval(SERIALIZE_SHEETS, async (result, exceptionInfo) => {
       try {
         if (exceptionInfo && (exceptionInfo.isError || exceptionInfo.isException)) return;
@@ -932,6 +940,7 @@ function pollCss() {
       }
     });
   });
+  return cssPollPromise;
 }
 
 // ---------------------------------------------------------------------------
@@ -1236,132 +1245,7 @@ function startCssPolling() {
   void pollElements();
 }
 
-// ---------------------------------------------------------------------------
-// Swap-prevention runtime — Next App Router / React 19 stylesheet hoisting
-// ---------------------------------------------------------------------------
-//
-// Next serves CSS as <link href="…/layout.css?v=<ts>"> and BUMPS ?v= on every
-// HMR rebuild. React hoists stylesheets keyed by the FULL href, so a bumped ?v=
-// is a brand-new resource: React inserts a fresh <link> + CSSStyleSheet and
-// tears the old one down (proven via a MutationObserver trace: add-new-THEN-
-// remove-old, old sheet already detached BEFORE removal). A DevTools CSS edit
-// lives on that old sheet, so it dies on the next save-triggered HMR — editing
-// "stops working after a save until you reselect the element".
-//
-// FIX: strip `?v=<digits>` from `_next/static/**.css` hrefs IN THE RSC FLIGHT
-// STREAM before React parses it. React then sees an UNCHANGED href across
-// rebuilds → dedups instead of swapping → the SAME CSSStyleSheet object lives
-// on → DevTools' edit binding survives → autosave + continuous editing work
-// (verified live: two stripped→stripped refreshes produce ZERO link add/remove).
-// DOM-level patches can't do this — React computes its resource key from the
-// flight href BEFORE touching the DOM, and blocking the swap desyncs React's
-// hoistable map → white screen. The flight strip is the only React-SAFE hook.
-//
-// Runs in the inspected page's MAIN world via inspectedWindow.eval; re-injected
-// on every reload (the fetch patch dies with the page context). Kill-switch:
-// `window.__devSyncNoSwap = false` disables it live (fetch passes through, prune
-// stops). Trade-off while ON: an editor-side CSS edit won't hot-reload (React
-// sees the same href) until a hard refresh — fine during a DevTools edit session.
-const NO_SWAP_RUNTIME = `(() => {
-  if (window.__devSyncNoSwapInstalled) { window.__devSyncNoSwap = true; return "already"; }
-  window.__devSyncNoSwapInstalled = true;
-  if (window.__devSyncNoSwap === undefined) window.__devSyncNoSwap = true;
-
-  const CSS_V = /(\\/_next\\/static\\/[^"'\\s?]+?\\.css)\\?v=\\d+/g;
-  const strip = (s) => s.replace(CSS_V, "$1");
-  const stripHref = (h) => (h || "").split("?")[0];
-  const hasV = (h) => /[?&]v=\\d+/.test(h || "");
-
-  // Is this an RSC flight response? Decide WITHOUT consuming a non-text body:
-  // Next flight fetches carry an "RSC"/prefetch request header and reply
-  // text/x-component; navigations also put "_rsc" in the URL.
-  const isFlight = (req, init, res, url) => {
-    try {
-      const ct = res.headers.get("content-type") || "";
-      if (ct.indexOf("text/x-component") !== -1) return true;
-      const hdr = (name) => {
-        if (req && req.headers && typeof req.headers.get === "function" && req.headers.get(name) != null) return true;
-        const h = init && init.headers;
-        if (!h) return false;
-        if (typeof h.get === "function") return h.get(name) != null;
-        return Object.keys(h).some((k) => k.toLowerCase() === name.toLowerCase());
-      };
-      if (hdr("RSC") || hdr("Next-Router-Prefetch") || hdr("Next-Router-State-Tree")) return true;
-      return String(url || "").indexOf("_rsc") !== -1;
-    } catch { return false; }
-  };
-
-  const origFetch = window.fetch;
-  window.fetch = async function (input, init) {
-    const res = await origFetch.call(this, input, init);
-    if (window.__devSyncNoSwap === false) return res;
-    const req = (input && typeof input === "object" && "url" in input) ? input : null;
-    const url = req ? req.url : String(input || "");
-    let flight;
-    try { flight = isFlight(req, init, res, url); } catch { flight = false; }
-    if (!flight) return res;
-    try {
-      const txt = await res.text();
-      const patched = strip(txt);
-      // Rebuild the Response from the (possibly rewritten) text. Drop length/
-      // encoding headers — the browser re-encodes the decoded string, so the
-      // originals no longer match. Buffering forfeits streaming, but dev HMR
-      // refresh payloads are small + already complete.
-      const h = new Headers(res.headers);
-      h.delete("content-length");
-      h.delete("content-encoding");
-      return new Response(patched, { status: res.status, statusText: res.statusText, headers: h });
-    } catch {
-      return res; // opaque / already-consumed body — let it through untouched
-    }
-  };
-
-  // Prune the orphaned ?v= <link> left behind on the FIRST ?v=→stripped
-  // transition: React inserts the stripped resource but never removes the old
-  // one (it deduped away from it, so it's unreferenced by any fiber and safe to
-  // drop). Only remove a ?v= link once its stripped twin is live, so the page is
-  // never briefly unstyled. Steady state (all stripped) inserts no link → no-op.
-  const pruneStale = () => {
-    if (window.__devSyncNoSwap === false) return;
-    const links = [...document.querySelectorAll('link[rel="stylesheet"]')];
-    const stripped = new Set();
-    for (const l of links) if (!hasV(l.href)) stripped.add(stripHref(l.href));
-    for (const l of links) {
-      if (hasV(l.href) && stripped.has(stripHref(l.href))) {
-        try { l.remove(); } catch {}
-      }
-    }
-  };
-  new MutationObserver((muts) => {
-    for (const m of muts) {
-      for (const n of m.addedNodes) {
-        if (n.nodeType === 1 && n.tagName === "LINK" && n.rel === "stylesheet") {
-          requestAnimationFrame(pruneStale);
-          return;
-        }
-      }
-    }
-  }).observe(document.documentElement, { childList: true, subtree: true });
-  window.__devSyncNoSwapPrune = pruneStale;
-  pruneStale();
-  return "installed";
-})()`;
-
-/**
- * Install the swap-prevention runtime in the inspected page's main world. Safe
- * to call repeatedly (the runtime self-guards) — re-run on every reload since
- * the fetch patch dies with the page context.
- */
-function injectNoSwapRuntime() {
-  chrome.devtools.inspectedWindow.eval(NO_SWAP_RUNTIME, (_result, exc) => {
-    if (exc && (exc.isError || exc.isException)) {
-      console.warn("[dev-sync] no-swap runtime inject failed", exc);
-    }
-  });
-}
-
 startCssPolling();
-injectNoSwapRuntime();
 
 // ---------------------------------------------------------------------------
 // Sync to source (POST /apply)
