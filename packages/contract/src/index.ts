@@ -309,6 +309,8 @@ export const ApplyModeSchema = z.enum([
   "classlist",
   /** Edited a css-in-js template/object in a JS/TS source file. */
   "cssinjs",
+  /** Edited a vanilla-extract style({...}) object in a .css.ts source file. */
+  "vanilla-extract",
   /** New rule was placed into a file chosen by the placement engine. */
   "placed",
   /** Edited JSX markup directly (attribute or text) via a source location. */

@@ -21,6 +21,7 @@ import { appendJournal } from "./journal.js";
 import { applyCssChange } from "./apply-css.js";
 import { applyInlinePromote } from "./apply-inline-promote.js";
 import { applySfcChange } from "./apply-sfc.js";
+import { applyVanillaExtractChange } from "./apply-vanilla-extract.js";
 import { applyJsxChange, describeJsxTemplate } from "./apply-jsx.js";
 import { computeClassListChange, isTailwindTarget } from "./classlist.js";
 import { applyCssInJsChange } from "./cssinjs.js";
@@ -383,6 +384,21 @@ async function applyOne(
         ? "sourcemap resolved the exact source rule inside the SFC's <style> block"
         : "exact PostCSS AST match on the target rule inside the SFC's <style> block",
       writes: [{ absFile: target.file, relFile: rel, before: sfc, after: res.css }],
+    };
+  }
+
+  // --- Tier: vanilla-extract (.css.ts style({...}) object) ---
+  if (target.kind === "vanilla-extract") {
+    const code = readWorkspaceFile(cfg.workspaceRoot, target.file);
+    const res = applyVanillaExtractChange(code, change);
+    const rel = toWorkspaceRelative(cfg.workspaceRoot, target.file);
+    return {
+      change,
+      file: rel,
+      mode: "vanilla-extract",
+      confidence: "deterministic",
+      confidenceReason: "class token decoded to a known style() export in the mapped .css.ts source",
+      writes: [{ absFile: target.file, relFile: rel, before: code, after: res.css }],
     };
   }
 

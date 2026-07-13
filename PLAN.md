@@ -32,19 +32,27 @@ vite-react 5299 · next 4300 · test-app 5199 · **vue 5399 · svelte 5499 · va
       diff = only `.card` padding, no disk write. 445 tests.
 - [x] 2d checkpoint commit.
 
-## Phase 3 — vanilla-extract tier  (SPIKE — brittle; may hit a product fork)
-Confirmed NOT on the existing sourcemap path. VE compiles `.css.ts` `style({...})` objects to
-CSS with debug class names `File_export__hash`; no line correspondence.
-- [ ] 3a force default mode (per-file virtual `X.css.ts.vanilla.css` id; NOT `inlineCssInDev`).
-- [ ] 3b `devtools.js` mappable gate: recognise the `.vanilla.css` `data-vite-dev-id`.
-- [ ] 3c `contract`: new marker field only if needed.
-- [ ] 3d `apps/server`: resolver strips `.vanilla.css` → `.css.ts`; new `apply-vanilla-extract.ts`
-      editing the `style({...})` object property (NOT a template literal); class `File_export__hash`
-      → exported `style` const. `applyOne` routing.
-- [ ] 3e `examples/ve-app`.
-- [ ] **FORK to surface if blocked:** mapping ONE DevTools property edit into the correct object
-      property/selector inside `style({...})` (pseudo/media nesting) may not resolve cleanly →
-      stop and get a product call rather than ship a guesser.
+## Phase 3 — vanilla-extract tier  (SPIKE — PROBE DONE, fork RESOLVED: buildable)
+Probe verdict: deterministic, NOT a guesser. Served class `<fileBasename>_<export>__<hash>`
+(single `_` before export, `__` before hash; disambiguate `_`-in-identifier by matching the
+file's real export list). Served CSS = virtual module `<basename>.css.ts.vanilla.css`
+(imported → CSSStyleSheet.href carries it → already mappable, NO devtools.js change). Self-
+referential no-op sourcemap (no line path). Flat props: camelCase↔kebab 1:1. Nested is LITERAL:
+`.<cls>:hover` → `selectors["&:hover"]`; `@media <q>` → `"@media"["<q>"]` — string match, not fuzzy.
+- [x] 3a probe: force DEFAULT mode (per-file virtual id), NOT `inlineCssInDev`. Confirmed.
+- [x] 3b devtools.js gate: NO change — served CSS mappable via `sheet.href` (vanilla.css URL).
+- [x] 3c contract: NO change — `mediaText` already on ModifyChange (index.ts:107); pseudo from
+      the served selector; class carries file+export.
+- [x] 3d BUILT (TDD): resolve.ts `.vanilla.css`→`.css.ts` strip + `kind:"vanilla-extract"`;
+      apply-vanilla-extract.ts (parseVeClass + resolveVeTargetObject + applyVanillaExtractChange);
+      apply.ts branch; contract ApplyModeSchema += "vanilla-extract". Self-contained, no
+      STYLE_TAG_ROOTS change. Reviewer found + I FIXED a 🔴 RCE: add-decl emitted `change.property`
+      as an object key with no validation → crafted property could splice arbitrary JS into the
+      `.css.ts` (VE plugin EVALUATES it → dev-machine RCE). Fix: CSS_PROPERTY_RE guard at the trust
+      boundary + structural-count defense-in-depth + custom-prop verbatim-quoted key. 479 tests.
+- [x] 3e `examples/ve-app` scaffolded (card flat + fancy :hover/@media); 3 preview-probes PASS.
+- [x] v1 SCOPE-OUT enforced (skip-with-reason, tested): styleVariants/recipe/style([array])/
+      style(base,{...}) composition, computed keys, dynamic values, missing @media/selectors path.
 - [ ] 3f checkpoint commit.
 
 ## Phase 4 — E2E per framework

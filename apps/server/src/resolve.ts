@@ -23,9 +23,12 @@ export interface ResolvedTarget {
   file: string;
   /**
    * css -> PostCSS apply; cssinjs -> babel/recast template-literal apply;
-   * sfc -> apply-sfc.ts edits the <style> block(s) of a .vue/.svelte source.
+   * sfc -> apply-sfc.ts edits the <style> block(s) of a .vue/.svelte source;
+   * vanilla-extract -> apply-vanilla-extract.ts edits the style({...}) object
+   * literal in a .css.ts source, reached via its served `.vanilla.css` virtual
+   * stylesheet id (never a real on-disk file).
    */
-  kind: "css" | "cssinjs" | "sfc";
+  kind: "css" | "cssinjs" | "sfc" | "vanilla-extract";
   /** 1-based line in the ORIGINAL source, when the sourcemap gave us one. */
   line: number | null;
   /**
@@ -141,11 +144,29 @@ export function mapRangeToOriginal(
  * mappable ORIGINAL source exists (.scss/.less/.module.css/JS), target the
  * source — never the compiled .css.
  */
+const VANILLA_CSS_SUFFIX = ".vanilla.css";
+
 export function resolveTargetForChange(
   workspaceRoot: string,
   sheet: StyleSheetRef,
   range: SourceRange | null,
 ): ResolvedTarget | null {
+  // --- Tier: vanilla-extract virtual stylesheet ---
+  // VE is not on the sourcemap path: a `.css.ts` file's style({...}) is served
+  // as a virtual module id `/src/card.css.ts.vanilla.css` with no real
+  // sourcemap (self-referential no-op). Strip the `.vanilla.css` suffix to
+  // recover the real `.css.ts` path BEFORE the sourcemap block below, which
+  // would otherwise treat the (non-existent-on-disk) virtual id as the
+  // compiled file and never find a source to map from.
+  const queryStrippedSourceURL = (sheet.sourceURL ?? "").split("?")[0] ?? "";
+  if (queryStrippedSourceURL.endsWith(VANILLA_CSS_SUFFIX)) {
+    const veSourcePath = queryStrippedSourceURL.slice(0, -VANILLA_CSS_SUFFIX.length);
+    const veFile = resolveExistingFile(workspaceRoot, veSourcePath);
+    if (veFile) {
+      return { file: veFile, line: null, column: null, kind: "vanilla-extract", viaSourceMap: false };
+    }
+  }
+
   const compiled = resolveExistingFile(workspaceRoot, sheet.sourceURL);
   const map = loadSourceMap(workspaceRoot, sheet, compiled);
 

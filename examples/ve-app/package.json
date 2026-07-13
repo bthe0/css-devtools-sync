@@ -1,0 +1,21 @@
+{
+  "name": "@dev-sync/example-ve-app",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@dev-sync/vite": "workspace:*",
+    "@vanilla-extract/css": "^1.21.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.2",
+    "@vanilla-extract/vite-plugin": "^5.2.4",
+    "typescript": "~6.0.3",
+    "vite": "^8.1.4"
+  }
+}
