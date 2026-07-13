@@ -20,6 +20,7 @@ import { SkipChangeError } from "./errors.js";
 import { appendJournal } from "./journal.js";
 import { applyCssChange } from "./apply-css.js";
 import { applyInlinePromote } from "./apply-inline-promote.js";
+import { applySfcChange } from "./apply-sfc.js";
 import { applyJsxChange, describeJsxTemplate } from "./apply-jsx.js";
 import { computeClassListChange, isTailwindTarget } from "./classlist.js";
 import { applyCssInJsChange } from "./cssinjs.js";
@@ -362,6 +363,26 @@ async function applyOne(
       confidenceReason: joinNotes(reason, res.note),
       note: res.note,
       writes: [{ absFile: target.file, relFile: rel, before: code, after: res.code }],
+    };
+  }
+
+  // --- Tier: SFC (.vue/.svelte) <style> block via apply-sfc.ts ---
+  if (target.kind === "sfc") {
+    const sfc = readWorkspaceFile(cfg.workspaceRoot, target.file);
+    const res = applySfcChange(sfc, change, {
+      position: target.line !== null ? { line: target.line, column: target.column } : undefined,
+    });
+    const rel = toWorkspaceRelative(cfg.workspaceRoot, target.file);
+    return {
+      change,
+      file: rel,
+      line: target.line ?? undefined,
+      mode: target.viaSourceMap ? "sourcemap" : "postcss",
+      confidence: "deterministic",
+      confidenceReason: target.viaSourceMap
+        ? "sourcemap resolved the exact source rule inside the SFC's <style> block"
+        : "exact PostCSS AST match on the target rule inside the SFC's <style> block",
+      writes: [{ absFile: target.file, relFile: rel, before: sfc, after: res.css }],
     };
   }
 

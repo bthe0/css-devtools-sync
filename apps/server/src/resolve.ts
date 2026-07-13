@@ -6,6 +6,8 @@ import { jailResolve, resolveExistingFile } from "./workspace.js";
 
 export const isJsLike = (file: string): boolean => /\.(?:[cm]?[jt]sx?)$/i.test(file);
 export const isCssLike = (file: string): boolean => /\.(?:css|scss|sass|less|styl)$/i.test(file);
+/** Single-file-component sources whose <style> block(s) apply-sfc.ts edits in place. */
+export const isSfcLike = (file: string): boolean => /\.(?:vue|svelte)$/i.test(file);
 
 /**
  * Which PostCSS syntax to parse/print a target file with. `.scss`/`.sass`
@@ -19,8 +21,11 @@ export const cssSyntaxForFile = (file: string): "scss" | "css" =>
 export interface ResolvedTarget {
   /** Absolute (jailed) path of the file to edit. */
   file: string;
-  /** css -> PostCSS apply; cssinjs -> babel/recast template-literal apply. */
-  kind: "css" | "cssinjs";
+  /**
+   * css -> PostCSS apply; cssinjs -> babel/recast template-literal apply;
+   * sfc -> apply-sfc.ts edits the <style> block(s) of a .vue/.svelte source.
+   */
+  kind: "css" | "cssinjs" | "sfc";
   /** 1-based line in the ORIGINAL source, when the sourcemap gave us one. */
   line: number | null;
   /**
@@ -152,7 +157,7 @@ export function resolveTargetForChange(
           file: orig.file,
           line: orig.line,
           column: orig.column,
-          kind: isJsLike(orig.file) ? "cssinjs" : "css",
+          kind: isSfcLike(orig.file) ? "sfc" : isJsLike(orig.file) ? "cssinjs" : "css",
           viaSourceMap: true,
         };
       }
@@ -160,6 +165,20 @@ export function resolveTargetForChange(
     // No usable range: still prefer any resolvable original source over the
     // compiled output. CSS-like sources first, then css-in-js sources.
     const sources: string[] = Array.isArray(map.sources) ? map.sources : [];
+    // SFC sources take priority over the css/js passes below: a .vue file's
+    // <style> block is neither isCssLike nor isJsLike, so without this pass
+    // it would fall through both and the change would be unresolvable.
+    for (const src of sources) {
+      let f: string | null = null;
+      try {
+        f = resolveExistingFile(workspaceRoot, src);
+      } catch {
+        continue;
+      }
+      if (f && isSfcLike(f)) {
+        return { file: f, line: null, column: null, kind: "sfc", viaSourceMap: true };
+      }
+    }
     for (const wantJs of [false, true]) {
       for (const src of sources) {
         let f: string | null = null;
