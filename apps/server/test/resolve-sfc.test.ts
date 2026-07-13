@@ -102,3 +102,45 @@ describe("resolveTargetForChange — SFC sourcemap sources", () => {
     expect(target?.column).toBeNull();
   });
 });
+
+describe("resolveTargetForChange — SFC via sourceURL compiled fallback", () => {
+  // vite-plugin-svelte emits `"sources":["Card.svelte"]` (bare, no directory),
+  // which resolveExistingFile can't locate under the workspace, so the
+  // sourcemap sfc pass misses. sheet.sourceURL still resolves the real file →
+  // the `if (compiled)` fallback must classify it kind:"sfc", NOT "css"
+  // (handing a .svelte's <script>/markup to PostCSS fails to parse).
+  const RELPATH = "src/lib/Card.svelte";
+  const SVELTE_SFC = [
+    "<script lang=\"ts\">",
+    "  let { title }: { title: string } = $props();",
+    "</script>",
+    "",
+    "<article class=\"card\">{title}</article>",
+    "",
+    "<style>",
+    "  .card {",
+    "    padding: 20px;",
+    "  }",
+    "</style>",
+    "",
+  ].join("\n");
+
+  it("classifies a .svelte file reached via the sourceURL fallback as kind:\"sfc\" (viaSourceMap:false), not \"css\"", () => {
+    const { root } = makeWorkspace(RELPATH, SVELTE_SFC);
+    const target = resolveTargetForChange(
+      root,
+      {
+        id: "s1",
+        // sourceURL resolves the real file; sourcemap source is bare + unresolvable.
+        sourceURL: RELPATH,
+        sourceMapURL: dataUriSourceMap("Card.svelte", 8, 4),
+        origin: "regular",
+      },
+      null,
+    );
+    expect(target).not.toBeNull();
+    expect(target?.kind).toBe("sfc");
+    expect(target?.file.endsWith("Card.svelte")).toBe(true);
+    expect(target?.viaSourceMap).toBe(false);
+  });
+});

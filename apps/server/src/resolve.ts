@@ -199,11 +199,20 @@ export function resolveTargetForChange(
   }
 
   if (compiled) {
+    // Reached when no sourcemap original resolved — e.g. vite-plugin-svelte
+    // emits `"sources":["Card.svelte"]` (bare filename, no directory), which
+    // resolveExistingFile can't locate under the workspace, so the sfc pass
+    // above misses. sheet.sourceURL still resolves the real file here, so we
+    // just need the right kind: an SFC classified as "css" would hand its
+    // <script>/markup to PostCSS and fail to parse. (We deliberately do NOT
+    // fuzzy-match a bare sourcemap basename against the workspace — two files
+    // sharing a name would resolve ambiguously; the deterministic sourceURL
+    // lookup already found the file.)
     return {
       file: compiled,
       line: null,
       column: null,
-      kind: isJsLike(compiled) ? "cssinjs" : "css",
+      kind: isSfcLike(compiled) ? "sfc" : isJsLike(compiled) ? "cssinjs" : "css",
       viaSourceMap: false,
     };
   }

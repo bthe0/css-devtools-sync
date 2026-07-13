@@ -11,22 +11,26 @@ Grounded by the arch map (2026-07-13). One tier touches: `apps/extension/devtool
 ## Ports
 vite-react 5299 · next 4300 · test-app 5199 · **vue 5399 · svelte 5499 · vanilla-extract 5599**
 
-## Phase 1 — Vue example  (LOW risk if it rides the existing path)
-- [ ] 1a scaffold `examples/vue-app`: Vite 8 + `@vitejs/plugin-vue` + `devSync()`, port 5399,
-      strictPort. Tiers to cover: plain global CSS, a `<style scoped>` SFC block, a CSS module.
-- [ ] 1b **EMPIRICAL probe (decides the rest):** boot it, inspect the served style — does the
-      DOM `<style>` / served CSS carry `data-vite-dev-id` AND a sourcemap that maps back into the
-      `.vue` file (vs. a virtual `Foo.vue?vue&type=style` id with no useful mapping)?
-- [ ] 1c IF rides existing `css`/sourcemap tier → example only, done. ELSE add resolver handling
-      for the virtual `?vue&type=style` id → SFC + an SFC-`<style>`-region-aware apply in server.
-- [ ] 1d checkpoint commit.
+## Phase 1 — Vue example  ✅ DONE (commit 4fdf1e8)
+- [x] 1a scaffold `examples/vue-app`: Vite 8 + `@vitejs/plugin-vue` + `devSync()`, port 5399.
+- [x] 1b probe: `.vue` sourcemap source is classified neither-css-nor-js → dropped. Needed a tier.
+- [x] 1c NEW `kind:"sfc"` tier (resolve.ts + apply-sfc.ts + apply.ts). Scoped `.card` applies to
+      ScopedCard.vue byte-identical outside the block; `<style module>` skips-with-reason.
+      Fail-loud on ambiguous selector across >1 `<style>` block. 444 tests + reviewer (0🔴).
+- [x] 1d checkpoint commit 4fdf1e8.
 
-## Phase 2 — Svelte example  (same shape as Phase 1)
-- [ ] 2a scaffold `examples/svelte-app`: `@sveltejs/vite-plugin-svelte` + svelte 5 + `devSync()`,
-      port 5499. Svelte scopes CSS via a generated `.svelte-<hash>` class → verify the served
-      `<style>` maps back to the `.svelte` file.
-- [ ] 2b probe (as 1b). 2c resolver/apply work if the virtual `?svelte&type=style` id needs it.
-- [ ] 2d checkpoint commit.
+## Phase 2 — Svelte example  ✅ DONE
+- [x] 2a scaffold `examples/svelte-app`: svelte@5.56 + @sveltejs/vite-plugin-svelte@7.2
+      (peer `^8.0.0` — Vite-8 OK) + `devSync()`, port 5499. Card.svelte default-scoped `<style>`.
+- [x] 2b probe: served selector `.card.svelte-<hash>` strips clean, BUT vite-plugin-svelte emits
+      `"sources":["Card.svelte"]` (bare, no dir) → sourcemap sfc pass misses → hits resolve.ts's
+      `if (compiled)` sourceURL fallback, which lacked the isSfcLike check → `.svelte` mis-typed
+      `kind:"css"` → PostCSS choked on `<script>`.
+- [x] 2c FIX: resolve.ts compiled-fallback now `isSfcLike(compiled) ? "sfc" : …`. Rejected the
+      broad fuzzy-basename-match option (ambiguity risk; deterministic sourceURL already resolves).
+      Re-probe PASS: `applied:[{file:"src/lib/Card.svelte", mode:"postcss", deterministic}]`,
+      diff = only `.card` padding, no disk write. 445 tests.
+- [x] 2d checkpoint commit.
 
 ## Phase 3 — vanilla-extract tier  (SPIKE — brittle; may hit a product fork)
 Confirmed NOT on the existing sourcemap path. VE compiles `.css.ts` `style({...})` objects to
