@@ -58,4 +58,12 @@ export function devSync(options: DevSyncOptions = {}): Plugin[] {
   return plugins;
 }
 
+export {
+  sourceLocatorSveltePreprocess,
+  type SvelteStampOptions,
+  type SveltePreprocessor,
+} from "./stamp-svelte.js";
+export { sourceLocatorVue, type VueStampOptions } from "./stamp-vue.js";
+export { sourceLocatorAstro, type AstroStampOptions } from "./stamp-astro.js";
+
 export default devSync;

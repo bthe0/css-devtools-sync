@@ -645,25 +645,34 @@ function addChange(change) {
   // vanilla-extract) serves CSS as an inline <style> that HMR updates IN PLACE
   // (same sheet object) — no <link>, nothing to swap or detach — so a mid-edit
   // save is safe, and the post-save settle guard (1350) already swallows the
-  // in-place HMR bounce. Re-arm idle-autosave only for those.
-  if (isViteInlineSheetChange(change)) scheduleAutosave();
+  // in-place HMR bounce. Re-arm idle-autosave for those AND for DOM ops.
+  if (shouldArmAutosave(change)) scheduleAutosave();
   postPendingSnapshot();
   notifyPending();
 }
 
 /**
- * Is this change targeting a Vite-served inline <style> sheet (safe to
- * idle-autosave), as opposed to an external <link href> sheet (Next's
- * swap-prone case, deselect-only)? The poller stamps
- * `styleSheet.id = "eval:" + sheet.key`, where sheet.key is a viteId (a dev
- * module path), a query-stripped href (`http(s)://…`), or `"inline:N"`. Only the
- * href case is a <link> React-19 can hoist/swap; a viteId or inline:N is always
- * an inline <style> HMR updates in place. DOM ops (set-text / promote-inline-
- * style) carry no styleSheet → non-arming (their tiers flush on deselect).
+ * Should this change arm the idle-autosave timer? Everything EXCEPT an external
+ * <link href> stylesheet edit should.
+ *
+ * The mid-edit-save→revert hazard is specific to Next's React-19 <link>
+ * hoisting: the poller stamps `styleSheet.id = "eval:" + sheet.key`, where
+ * sheet.key is a viteId (a dev module path), a query-stripped href
+ * (`http(s)://…`), or `"inline:N"`. Only the href case is a <link> React-19 can
+ * hoist/swap out from under an in-progress edit, so ONLY that case stays
+ * deselect-only (returns false here). A viteId or inline:N is an inline <style>
+ * HMR updates IN PLACE — safe to idle-save.
+ *
+ * DOM ops (set-text / set-text-segment / promote-inline-style / set-attr) carry
+ * NO styleSheet at all: they touch the DOM, never a <link>, so the swap hazard
+ * structurally can't apply — they MUST arm autosave too (else inline-style and
+ * text edits only ever sync on deselect/shortcut, never on idle).
  */
-function isViteInlineSheetChange(change) {
+function shouldArmAutosave(change) {
   const id = change && change.styleSheet && change.styleSheet.id;
-  if (typeof id !== "string") return false;
+  // DOM op — no stylesheet, no <link> to swap → always safe to idle-save.
+  if (typeof id !== "string") return true;
+  // External <link href> (Next) is the sole swap-prone case → deselect-only.
   return !/^https?:\/\//.test(id.replace(/^eval:/, ""));
 }
 

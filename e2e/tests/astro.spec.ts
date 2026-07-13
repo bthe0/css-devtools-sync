@@ -98,8 +98,116 @@ test("a committed Styles-panel edit writes Card.astro's <style> block on disk", 
     expect(styleBlockAfter).toBe(styleBlockBefore);
     // Sibling declaration + sibling rule inside the same block are untouched.
     expect(after).toContain("border-radius: 8px;");
-    expect(after).toContain("color: #2563eb;");
+    expect(after).toContain("color: rgb(37, 99, 235);");
   } finally {
     fs.writeFileSync(SFC_PATH, before);
   }
+});
+
+// --------------------------------------------------------------------------
+// Markup tier — the same shared line-anchored SFC byte-splice that serves
+// Svelte/Vue. sourceLocatorAstro() stamps each static element with a transient
+// `data-devloc` on the raw `.astro` source; a page-level harvest script lifts
+// it into a valid `__srcLoc` before first paint, so the extension emits
+// set-attr/set-text changes carrying the element's `dataSourceFile` +
+// `dataSourceLine`. These specs POST those change shapes directly and assert
+// the server writes the `.astro` SOURCE, static edits apply (mode "jsx"), and
+// the dynamic `<h2>{title}</h2>` body is refused rather than corrupted. The
+// set-attr/set-text targets live in Card.astro; the set-text-on-page target
+// lives in index.astro (a slotted `<p>` reached by recursing into `<Card>`).
+// --------------------------------------------------------------------------
+
+const CARD_REL = "src/components/Card.astro";
+const INDEX_PATH = path.resolve(import.meta.dirname, "../../examples/astro-app/src/pages/index.astro");
+const INDEX_REL = "src/pages/index.astro";
+
+/** Read pristine source at `file`, run `body`, always restore the file afterwards. */
+async function withPristine(file: string, body: (pristine: string) => Promise<void>): Promise<void> {
+  const pristine = fs.readFileSync(file, "utf8");
+  try {
+    await body(pristine);
+  } finally {
+    fs.writeFileSync(file, pristine);
+  }
+}
+
+test("a committed set-attr on the static <div> inserts style= into Card.astro source", async ({ request }) => {
+  await withPristine(SFC_PATH, async () => {
+    const applyRes = await request.post("/__dev-sync/apply", {
+      data: {
+        url: "http://localhost:5699/",
+        applyMode: "commit",
+        changes: [
+          {
+            op: "set-attr",
+            element: { tagName: "div", classList: ["card"], dataSourceFile: CARD_REL, dataSourceLine: 8 },
+            attribute: "style",
+            value: "padding: 24px;",
+          },
+        ],
+      },
+    });
+    expect(applyRes.status(), await applyRes.text()).toBe(200);
+    const result = await applyRes.json();
+    expect(result.applied, JSON.stringify(result)).toHaveLength(1);
+    expect(result.applied[0].mode).toBe("jsx");
+
+    const after = fs.readFileSync(SFC_PATH, "utf8");
+    expect(after).toContain('<div style="padding: 24px;" class="card">');
+    expect(after).toContain("padding: 20px;"); // the .card rule inside <style> is a different tier
+  });
+});
+
+test("a committed set-text on the slotted <p> rewrites its body in index.astro source", async ({ request }) => {
+  await withPristine(INDEX_PATH, async () => {
+    const applyRes = await request.post("/__dev-sync/apply", {
+      data: {
+        url: "http://localhost:5699/",
+        applyMode: "commit",
+        changes: [
+          {
+            op: "set-text",
+            element: { tagName: "p", classList: [], dataSourceFile: INDEX_REL, dataSourceLine: 12 },
+            newText: "Edited via DevTools",
+            oldText: "Scoped style probe target.",
+          },
+        ],
+      },
+    });
+    expect(applyRes.status(), await applyRes.text()).toBe(200);
+    const result = await applyRes.json();
+    expect(result.applied, JSON.stringify(result)).toHaveLength(1);
+    expect(result.applied[0].mode).toBe("jsx");
+
+    const after = fs.readFileSync(INDEX_PATH, "utf8");
+    expect(after).toContain("<p>Edited via DevTools</p>");
+    expect(after).not.toContain("Scoped style probe target.");
+    // The hosting <Card> component tag is byte-identical.
+    expect(after).toContain('<Card title="Hello from Astro">');
+  });
+});
+
+test("a set-text on the dynamic <h2>{title}</h2> is refused, not corrupted", async ({ request }) => {
+  await withPristine(SFC_PATH, async (pristine) => {
+    const applyRes = await request.post("/__dev-sync/apply", {
+      data: {
+        url: "http://localhost:5699/",
+        applyMode: "commit",
+        changes: [
+          {
+            op: "set-text",
+            element: { tagName: "h2", classList: ["card-title"], dataSourceFile: CARD_REL, dataSourceLine: 9 },
+            newText: "Hardcoded",
+          },
+        ],
+      },
+    });
+    expect(applyRes.status(), await applyRes.text()).toBe(200);
+    const result = await applyRes.json();
+    expect(result.applied).toHaveLength(0);
+    expect(result.skipped, JSON.stringify(result)).toHaveLength(1);
+    expect(result.skipped[0].reason).toMatch(/non-text or dynamic/i);
+    // Source is byte-identical — a refused edit never touches disk.
+    expect(fs.readFileSync(SFC_PATH, "utf8")).toBe(pristine);
+  });
 });

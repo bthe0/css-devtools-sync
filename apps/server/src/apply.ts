@@ -23,11 +23,12 @@ import { applyInlinePromote } from "./apply-inline-promote.js";
 import { applySfcChange } from "./apply-sfc.js";
 import { applyVanillaExtractChange } from "./apply-vanilla-extract.js";
 import { applyJsxChange, describeJsxTemplate } from "./apply-jsx.js";
+import { applySfcMarkupChange } from "./apply-sfc-markup.js";
 import { computeClassListChange, isTailwindTarget } from "./classlist.js";
 import { applyCssInJsChange } from "./cssinjs.js";
 import { chooseTemplateLine, hasStyledIdentity, resolveStyledTarget } from "./cssinjs-target.js";
 import { choosePlacement, findOwningCssFile } from "./placement.js";
-import { cssSyntaxForFile, isCssLike, resolveTargetForChange } from "./resolve.js";
+import { cssSyntaxForFile, isCssLike, isSfcLike, resolveTargetForChange } from "./resolve.js";
 import {
   jailResolve,
   readWorkspaceFile,
@@ -257,6 +258,29 @@ async function applyOne(
     change.op === "set-text" ||
     change.op === "set-text-segment"
   ) {
+    // .vue/.svelte/.astro templates aren't JSX — @babel/parser can't read them.
+    // A static attr/text run in an SFC template is byte-identical HTML, so one
+    // shared line-anchored byte-splice tier serves all three frameworks. Only
+    // set-text-segment still routes to JSX (SFC segment edits aren't supported
+    // yet); everything else goes through the framework-neutral SFC tier.
+    if (isSfcLike(change.element.dataSourceFile)) {
+      if (change.op === "set-text-segment") {
+        throw new SkipChangeError(
+          "text-segment edits for SFC templates are not yet supported",
+        );
+      }
+      const res = applySfcMarkupChange(cfg.workspaceRoot, change);
+      const rel = toWorkspaceRelative(cfg.workspaceRoot, res.file);
+      return {
+        change,
+        file: rel,
+        line: res.line,
+        mode: "jsx",
+        confidence: "deterministic",
+        confidenceReason: "line-anchored byte splice on the stamped SFC element",
+        writes: [{ absFile: res.file, relFile: rel, before: res.before, after: res.after }],
+      };
+    }
     const res = applyJsxChange(cfg.workspaceRoot, change);
     const rel = toWorkspaceRelative(cfg.workspaceRoot, res.file);
     return {

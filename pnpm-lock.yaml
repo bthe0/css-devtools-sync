@@ -150,6 +150,9 @@ importers:
 
   examples/astro-app:
     dependencies:
+      '@dev-sync/babel-plugin-source-locator':
+        specifier: workspace:*
+        version: link:../../packages/babel-plugin-source-locator
       '@dev-sync/vite':
         specifier: workspace:*
         version: link:../../packages/vite
@@ -202,6 +205,9 @@ importers:
 
   examples/nuxt-app:
     dependencies:
+      '@dev-sync/server':
+        specifier: workspace:*
+        version: link:../../apps/server
       '@dev-sync/vite':
         specifier: workspace:*
         version: link:../../packages/vite
@@ -242,6 +248,9 @@ importers:
 
   examples/svelte-app:
     dependencies:
+      '@dev-sync/babel-plugin-source-locator':
+        specifier: workspace:*
+        version: link:../../packages/babel-plugin-source-locator
       '@dev-sync/vite':
         specifier: workspace:*
         version: link:../../packages/vite
@@ -326,6 +335,9 @@ importers:
 
   examples/vue-app:
     dependencies:
+      '@dev-sync/babel-plugin-source-locator':
+        specifier: workspace:*
+        version: link:../../packages/babel-plugin-source-locator
       '@dev-sync/vite':
         specifier: workspace:*
         version: link:../../packages/vite
@@ -407,10 +419,19 @@ importers:
       '@dev-sync/server':
         specifier: workspace:*
         version: link:../../apps/server
+      magic-string:
+        specifier: ^0.30.0
+        version: 0.30.21
     devDependencies:
+      '@astrojs/compiler-rs':
+        specifier: ^0.3.0
+        version: 0.3.1(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.2)
       '@types/node':
         specifier: ^22.0.0
         version: 22.20.1
+      svelte:
+        specifier: ^5.0.0
+        version: 5.56.4(@typescript-eslint/types@8.63.0)
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
@@ -420,6 +441,9 @@ importers:
       vitest:
         specifier: ^3.0.0
         version: 3.2.7(@types/node@22.20.1)(jiti@2.7.0)(jsdom@25.0.1)(lightningcss@1.32.0)(sass-embedded@1.100.0)(sass@1.100.0)(terser@5.49.0)(tsx@4.23.0)(yaml@2.9.0)
+      vue:
+        specifier: ^3.5.0
+        version: 3.5.39(typescript@5.9.3)
 
   packages/webpack:
     dependencies:
@@ -7409,6 +7433,14 @@ snapshots:
       - '@emnapi/runtime'
     optional: true
 
+  '@astrojs/compiler-binding-wasm32-wasi@0.3.1(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.2)':
+    dependencies:
+      '@napi-rs/wasm-runtime': 1.1.6(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.2)
+    transitivePeerDependencies:
+      - '@emnapi/core'
+      - '@emnapi/runtime'
+    optional: true
+
   '@astrojs/compiler-binding-win32-arm64-msvc@0.3.1':
     optional: true
 
@@ -7430,9 +7462,31 @@ snapshots:
       - '@emnapi/core'
       - '@emnapi/runtime'
 
+  '@astrojs/compiler-binding@0.3.1(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.2)':
+    optionalDependencies:
+      '@astrojs/compiler-binding-darwin-arm64': 0.3.1
+      '@astrojs/compiler-binding-darwin-x64': 0.3.1
+      '@astrojs/compiler-binding-linux-arm64-gnu': 0.3.1
+      '@astrojs/compiler-binding-linux-arm64-musl': 0.3.1
+      '@astrojs/compiler-binding-linux-x64-gnu': 0.3.1
+      '@astrojs/compiler-binding-linux-x64-musl': 0.3.1
+      '@astrojs/compiler-binding-wasm32-wasi': 0.3.1(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.2)
+      '@astrojs/compiler-binding-win32-arm64-msvc': 0.3.1
+      '@astrojs/compiler-binding-win32-x64-msvc': 0.3.1
+    transitivePeerDependencies:
+      - '@emnapi/core'
+      - '@emnapi/runtime'
+
   '@astrojs/compiler-rs@0.3.1(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)':
     dependencies:
       '@astrojs/compiler-binding': 0.3.1(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)
+    transitivePeerDependencies:
+      - '@emnapi/core'
+      - '@emnapi/runtime'
+
+  '@astrojs/compiler-rs@0.3.1(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.2)':
+    dependencies:
+      '@astrojs/compiler-binding': 0.3.1(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.2)
     transitivePeerDependencies:
       - '@emnapi/core'
       - '@emnapi/runtime'
@@ -8297,6 +8351,13 @@ snapshots:
     dependencies:
       '@emnapi/core': 1.11.1
       '@emnapi/runtime': 1.11.1
+      '@tybys/wasm-util': 0.10.3
+    optional: true
+
+  '@napi-rs/wasm-runtime@1.1.6(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.2)':
+    dependencies:
+      '@emnapi/core': 1.11.1
+      '@emnapi/runtime': 1.11.2
       '@tybys/wasm-util': 0.10.3
     optional: true
 
@@ -9914,6 +9975,12 @@ snapshots:
       '@vue/runtime-core': 3.5.39
       '@vue/shared': 3.5.39
       csstype: 3.2.3
+
+  '@vue/server-renderer@3.5.39(vue@3.5.39(typescript@5.9.3))':
+    dependencies:
+      '@vue/compiler-ssr': 3.5.39
+      '@vue/shared': 3.5.39
+      vue: 3.5.39(typescript@5.9.3)
 
   '@vue/server-renderer@3.5.39(vue@3.5.39(typescript@6.0.3))':
     dependencies:
@@ -14851,6 +14918,16 @@ snapshots:
       '@volar/typescript': 2.4.28
       '@vue/language-core': 3.3.7
       typescript: 6.0.3
+
+  vue@3.5.39(typescript@5.9.3):
+    dependencies:
+      '@vue/compiler-dom': 3.5.39
+      '@vue/compiler-sfc': 3.5.39
+      '@vue/runtime-dom': 3.5.39
+      '@vue/server-renderer': 3.5.39(vue@3.5.39(typescript@5.9.3))
+      '@vue/shared': 3.5.39
+    optionalDependencies:
+      typescript: 5.9.3
 
   vue@3.5.39(typescript@6.0.3):
     dependencies:
