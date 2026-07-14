@@ -4,6 +4,11 @@ dist/
 *.log
 .DS_Store
 
+# framework dev-server generated output (regenerated on every boot)
+.nuxt/
+.output/
+.astro/
+
 .chrome-profile/
 
 # brand logo pick candidates (only the chosen brand/logo.png is committed)
