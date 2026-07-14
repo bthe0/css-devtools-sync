@@ -35,14 +35,38 @@ function escRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/**
+ * HTML attribute-name grammar (a conservative superset of valid names). The
+ * contract only bounds `attribute` by length, so a crafted name like
+ * `x onload="…" y` would otherwise be spliced raw into the open tag = stored
+ * markup/handler injection. Reject anything with whitespace, quotes, `<`, `>`,
+ * `=`, `/`, or a brace before it reaches a byte-splice.
+ */
+const ATTR_NAME_RE = /^[A-Za-z_:][\w:.-]*$/;
+function assertAttrName(attr: string): void {
+  if (!ATTR_NAME_RE.test(attr)) {
+    throw new SkipChangeError(`refusing malformed attribute name "${attr}"`);
+  }
+}
+
+/**
+ * Neutralize template interpolation delimiters. A literal `{` in Svelte/Astro
+ * text or attribute values (and `{{` in Vue) opens a live expression the
+ * compiler would EVALUATE — the same code-exec class the vanilla-extract tier
+ * guards against. Rendered back to a literal brace via the named entity.
+ */
+function escBraces(v: string): string {
+  return v.replace(/\{/g, "&lbrace;").replace(/\}/g, "&rbrace;");
+}
+
 /** Escape a string for use as a double-quoted HTML attribute value. */
 function escAttrValue(v: string): string {
-  return v.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+  return escBraces(v.replace(/&/g, "&amp;").replace(/"/g, "&quot;"));
 }
 
 /** Escape a string for use as HTML text content. */
 function escText(v: string): string {
-  return v.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  return escBraces(v.replace(/&/g, "&amp;").replace(/</g, "&lt;"));
 }
 
 /** 0-based [start, end) char offsets of a 1-based source line (end excludes the newline). */
@@ -74,13 +98,19 @@ function parseOpenTag(source: string, ltIndex: number): OpenTag | null {
   const tagName = nameMatch[0];
   let i = ltIndex + 1 + tagName.length;
   let quote: string | null = null;
+  let braceDepth = 0; // Svelte/Astro attr expressions: `on:click={() => f(a > b)}`
   while (i < source.length) {
     const ch = source[i]!;
     if (quote) {
       if (ch === quote) quote = null;
     } else if (ch === '"' || ch === "'") {
       quote = ch;
-    } else if (ch === ">") {
+    } else if (ch === "{") {
+      braceDepth++;
+    } else if (ch === "}") {
+      if (braceDepth > 0) braceDepth--;
+    } else if (ch === ">" && braceDepth === 0) {
+      // A '>' inside a `{…}` expression (comparison, arrow body) is not the tag end.
       const selfClosing = source[i - 1] === "/";
       return { tagStart: ltIndex, nameEnd: ltIndex + 1 + tagName.length, gtIndex: i, tagName, selfClosing };
     }
@@ -89,22 +119,28 @@ function parseOpenTag(source: string, ltIndex: number): OpenTag | null {
   return null; // unterminated tag
 }
 
-/** Find the first element open tag whose '<' sits on `targetLine`. */
-function locateOpenTag(source: string, targetLine: number): OpenTag {
+/**
+ * Find the element open tag on `targetLine` whose tag name matches `expectTag`
+ * (the recorded DOM tag). Requiring the name filters out a spurious `<x` match —
+ * e.g. the `<n` in `{#if i<n}` — that a first-match locator would try to edit,
+ * and refuses (rather than corrupts) when the source has drifted off the stamp.
+ */
+function locateOpenTag(source: string, targetLine: number, expectTag: string): OpenTag {
   const range = lineOffsets(source, targetLine);
   if (!range) {
     throw new SkipChangeError(`line ${String(targetLine)} is out of range in the SFC source`);
   }
+  const want = expectTag.toLowerCase();
   const re = /<[a-zA-Z]/g;
   re.lastIndex = range.start;
   let m: RegExpExecArray | null;
   while ((m = re.exec(source)) !== null) {
     if (m.index >= range.end) break;
     const open = parseOpenTag(source, m.index);
-    if (open) return open;
+    if (open && open.tagName.toLowerCase() === want) return open;
   }
   throw new SkipChangeError(
-    `no element open tag found on line ${String(targetLine)} — the source may have drifted since it was stamped`,
+    `no <${expectTag}> open tag found on line ${String(targetLine)} — the source may have drifted since it was stamped`,
   );
 }
 
@@ -133,6 +169,7 @@ function findCloseTag(source: string, from: number, tagName: string): { start: n
 
 function applySetAttr(source: string, open: OpenTag, change: SetAttrChange): string {
   const attr = change.attribute;
+  assertAttrName(attr);
   // The class tier owns class edits; a raw class="" here would fight it.
   if (attr === "class" || attr === "className") {
     throw new SkipChangeError(
@@ -153,11 +190,32 @@ function applySetAttr(source: string, open: OpenTag, change: SetAttrChange): str
     );
   }
 
+  // Svelte shorthand `{attr}` supplies the same attribute from a variable, and a
+  // `{...spread}` may inject it — inserting our own would duplicate/fight it.
+  const shorthandRe = new RegExp("\\{\\s*" + escRe(attr) + "\\s*\\}");
+  if (shorthandRe.test(openStr)) {
+    throw new SkipChangeError(
+      `"${attr}" is supplied by a shorthand {${attr}} binding; cannot edit deterministically`,
+    );
+  }
+  if (/\{\s*\.\.\./.test(openStr)) {
+    throw new SkipChangeError(
+      `element carries a {...spread} that may already set "${attr}"; refusing a dynamic target`,
+    );
+  }
+
   const quotedRe = new RegExp("(\\s" + escRe(attr) + "\\s*=\\s*)(['\"])([\\s\\S]*?)\\2");
   const qm = quotedRe.exec(openStr);
   if (qm) {
+    // A `{` inside the existing quoted value is Svelte/Astro interpolation —
+    // overwriting the whole value would destroy that live expression.
+    if (qm[3]!.includes("{")) {
+      throw new SkipChangeError(
+        `"${attr}" value carries an {interpolation}; cannot overwrite deterministically`,
+      );
+    }
     const quote = qm[2]!;
-    const escaped = quote === '"' ? escAttrValue(change.value) : change.value.replace(/&/g, "&amp;").replace(/'/g, "&#39;");
+    const escaped = quote === '"' ? escAttrValue(change.value) : escBraces(change.value.replace(/&/g, "&amp;").replace(/'/g, "&#39;"));
     const start = qm.index + qm[1]!.length + 1; // just past the opening quote
     const end = start + qm[3]!.length;
     const newOpen = openStr.slice(0, start) + escaped + openStr.slice(end);
@@ -172,6 +230,7 @@ function applySetAttr(source: string, open: OpenTag, change: SetAttrChange): str
 
 function applyRemoveAttr(source: string, open: OpenTag, change: RemoveAttrChange): string {
   const attr = change.attribute;
+  assertAttrName(attr);
   const tagEnd = open.selfClosing ? open.gtIndex - 1 : open.gtIndex;
   const openStr = source.slice(open.tagStart, tagEnd);
   // Remove `attr="…"`, `attr='…'`, unquoted `attr=…`, or a bare `attr`, with its leading whitespace.
@@ -221,7 +280,7 @@ export function applySfcMarkup(
   opts: { line?: number } = {},
 ): string {
   const line = opts.line ?? change.element.dataSourceLine;
-  const open = locateOpenTag(source, line);
+  const open = locateOpenTag(source, line, change.element.tagName);
   switch (change.op) {
     case "set-attr":
       return applySetAttr(source, open, change);

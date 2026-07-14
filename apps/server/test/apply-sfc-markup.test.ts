@@ -153,6 +153,112 @@ describe("applySfcMarkup — set-text", () => {
 });
 
 // --------------------------------------------------------------------------
+// Security & fidelity — the trust boundary (Phase A1 hardening)
+// --------------------------------------------------------------------------
+
+describe("applySfcMarkup — attribute-name trust boundary", () => {
+  it("refuses an attribute name carrying an injected handler rather than splicing it raw", () => {
+    // Contract only bounds length; a crafted name would inject markup on insert.
+    const src = "<article>x</article>\n";
+    expect(() =>
+      applySfcMarkup(src, attrChange(1, 'x onload="fetch(`/steal`)" y', "v")),
+    ).toThrow(/attribute name/i);
+  });
+
+  it("refuses a malformed attribute name on remove-attr too", () => {
+    const src = '<article style="p">x</article>\n';
+    expect(() =>
+      applySfcMarkup(src, {
+        op: "remove-attr",
+        element: { tagName: "article", classList: [], dataSourceFile: "src/Card.svelte", dataSourceLine: 1 },
+        attribute: "style onmouseover=alert(1)",
+      }),
+    ).toThrow(/attribute name/i);
+  });
+
+  it("still accepts a legitimate namespaced/dotted attribute name", () => {
+    const src = "<article>x</article>\n";
+    const out = applySfcMarkup(src, attrChange(1, "data-x.y:z", "1"));
+    expect(out).toBe('<article data-x.y:z="1">x</article>\n');
+  });
+});
+
+describe("applySfcMarkup — interpolation injection", () => {
+  it("neutralizes a Svelte/Astro {expr} injected via set-text (no live interpolation reaches source)", () => {
+    const src = "<h3>x</h3>\n";
+    const out = applySfcMarkup(src, textChange(1, "{constructor.constructor('x')()}"));
+    expect(out).not.toContain("{constructor");
+    expect(out).toContain("&lbrace;");
+  });
+
+  it("neutralizes a Vue {{ }} mustache injected via set-text", () => {
+    const src = "<h3>x</h3>\n";
+    const out = applySfcMarkup(src, textChange(1, "{{ evil }}"));
+    expect(out).not.toContain("{{");
+  });
+
+  it("neutralizes a brace injected via an inserted attribute value", () => {
+    const src = "<article>x</article>\n";
+    const out = applySfcMarkup(src, attrChange(1, "title", "a{evil}b"));
+    expect(out).not.toContain("{evil}");
+    expect(out).toContain("&lbrace;");
+  });
+});
+
+describe("applySfcMarkup — brace-aware open-tag scan", () => {
+  it("does not mis-terminate the tag on a '>' inside a {arrow => expr} attribute", () => {
+    // The '>' in `a > b` sits inside a Svelte expression attribute; a quote-only
+    // scanner would end the tag there and splice into the expression.
+    const src = "<button on:click={() => go(a > b)}>Go</button>\n";
+    const out = applySfcMarkup(src, {
+      op: "set-text",
+      element: { tagName: "button", classList: [], dataSourceFile: "src/Card.svelte", dataSourceLine: 1 },
+      newText: "Stop",
+    });
+    expect(out).toBe("<button on:click={() => go(a > b)}>Stop</button>\n");
+  });
+});
+
+describe("applySfcMarkup — tag-name identity", () => {
+  it("skips a false '<x' match earlier on the line and edits the element whose tag matches", () => {
+    // `i<n` yields a spurious `<n` that a first-match locator would try to edit.
+    const src = '{#if i<n}<article style="p: 1px;">x</article>{/if}\n';
+    const out = applySfcMarkup(src, attrChange(1, "style", "p: 9px;"));
+    expect(out).toBe('{#if i<n}<article style="p: 9px;">x</article>{/if}\n');
+  });
+
+  it("refuses when no element on the line matches the recorded tag name", () => {
+    const src = "<section>x</section>\n";
+    expect(() => applySfcMarkup(src, attrChange(1, "style", "p: 9px;"))).toThrow(
+      /tag|drift/i,
+    );
+  });
+});
+
+describe("applySfcMarkup — dynamic value guards", () => {
+  it("refuses to overwrite an existing attribute value that carries {interpolation}", () => {
+    const src = '<article style="color: {c}">x</article>\n';
+    expect(() => applySfcMarkup(src, attrChange(1, "style", "color: red;"))).toThrow(
+      /dynamic|interpolat/i,
+    );
+  });
+
+  it("refuses to insert an attribute already present as a shorthand {attr}", () => {
+    const src = "<article {style}>x</article>\n";
+    expect(() => applySfcMarkup(src, attrChange(1, "style", "color: red;"))).toThrow(
+      /shorthand|dynamic/i,
+    );
+  });
+
+  it("refuses to insert onto an element carrying a {...spread}", () => {
+    const src = "<article {...props}>x</article>\n";
+    expect(() => applySfcMarkup(src, attrChange(1, "title", "hi"))).toThrow(
+      /spread|dynamic/i,
+    );
+  });
+});
+
+// --------------------------------------------------------------------------
 // Integration — apply.ts routing across the three SFC extensions
 // --------------------------------------------------------------------------
 
