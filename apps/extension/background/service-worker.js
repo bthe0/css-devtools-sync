@@ -1,115 +1,43 @@
-// background/service-worker.js — the CDP capture engine.
+// background/service-worker.js — the panel <-> content-script message relay.
 //
-// Uses chrome.debugger (raw Chrome DevTools Protocol) because
-// chrome.devtools.inspectedWindow does NOT expose CSS.*/DOM.* domain events.
+// This worker holds NO capture session. Every capture tier (CSS, set-text,
+// set-attr, Tailwind, Emotion, styled-components, inline-promote, text-segment)
+// runs as an inspectedWindow.eval poller in devtools.js, reading the page's
+// REAL live DOM/CSSOM and POSTing straight to the dev server's apply engine.
 //
-// All diffing / CaptureChange-building logic is pure and lives in
-// ./diff.js (no chrome.* calls) so it can be unit-tested without a browser.
-// This file's job is just: manage the CDP session, keep just enough DOM
-// state to resolve mutated nodeIds back to ElementContext, and forward the
-// results to the panel.
+// A raw-CDP session used to live here but was removed: it could never observe
+// the user's Elements-panel edits (those go through the DevTools frontend's
+// own protocol session — the original cross-session capture bug), and
+// attaching cost Chrome's intrusive "started inspecting this browser" banner
+// + an install-time warning for nothing.
 //
-// KNOWN LIMITATIONS (documented, surfaced to the panel where possible):
-//  - Attaching shows Chrome's yellow "… started debugging this browser"
-//    banner on the inspected tab. This is unavoidable with chrome.debugger;
-//    clicking "Cancel" on the banner force-detaches us (we report it).
-//  - chrome.debugger multiplexes with an open DevTools window since Chrome
-//    ~M63, so attaching WHILE DevTools is open works — but if another
-//    debugger extension is already attached, attach fails with
-//    "Another debugger is already attached"; we surface that error verbatim.
-//  - Service workers can be killed by the browser; in-memory stylesheet/DOM
-//    snapshots die with it. Debugger events keep the worker alive in
-//    practice, but after a SW restart the panel must re-attach.
+// The worker's sole job now: track a per-tab panel port + last selected
+// element, and relay status/toast/pending messages between the panel and the
+// in-page HUD content script. It keeps no snapshot state, so a service-worker
+// restart is harmless — the panel just re-opens its port.
 
 "use strict";
 
-import {
-  diffSheet,
-} from "./diff.js";
 import { summarizeAutosave } from "./summary.js";
 
-const DIFF_DEBOUNCE_MS = 300;
-// NOTE: CSS.styleSheetChanged is delivered ONLY to the CDP session that made
-// the edit, and CSS.getStyleSheetText returns text frozen at attach for a
-// secondary session. The user edits through the DevTools frontend's session,
-// so neither the event nor a re-read here can observe the user's CSS edits.
-// The real capture path therefore lives in devtools.js, which polls the LIVE
-// CSSOM via inspectedWindow.eval. This file keeps the styleSheetChanged
-// listener only as a harmless fast-path (fires for same-session edits) and
-// remains the source of stylesheet METADATA (sourceURL/sourceMapURL).
-
 /**
- * Per-tab capture session.
- * tabId -> {
- *   port: chrome.runtime.Port,
- *   sheets: Map<styleSheetId, {ref: StyleSheetRef, text: string}>,
- *   debounce: Map<styleSheetId, timeoutId>,               // CSS
- *   lastElementContext: ElementContext | null,
- *   attached: boolean,
- * }
+ * Per-tab session record — just the panel port + last selected element.
+ * tabId -> { port: chrome.runtime.Port, lastElementContext: ElementContext | null }
  */
 const sessions = new Map();
-
-// ---------------------------------------------------------------------------
-// CDP helpers
-// ---------------------------------------------------------------------------
-
-function cdp(tabId, method, params) {
-  return new Promise((resolve, reject) => {
-    chrome.debugger.sendCommand({ tabId }, method, params ?? {}, (result) => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(`${method}: ${chrome.runtime.lastError.message}`));
-      } else {
-        resolve(result);
-      }
-    });
-  });
-}
-
-function debuggerDetach(tabId) {
-  return new Promise((resolve) => {
-    chrome.debugger.detach({ tabId }, () => {
-      // Ignore "not attached" errors — detach must be idempotent.
-      void chrome.runtime.lastError;
-      resolve();
-    });
-  });
-}
 
 // ---------------------------------------------------------------------------
 // Session lifecycle
 // ---------------------------------------------------------------------------
 
 async function startSession(tabId, port) {
-  const session = {
-    port,
-    sheets: new Map(),
-    debounce: new Map(),
-    lastElementContext: null,
-    attached: false,
-  };
+  const session = { port, lastElementContext: null };
   sessions.set(tabId, session);
-
-  // NO CDP attach. Every capture tier (CSS, set-text, set-attr, Tailwind,
-  // Emotion, styled-components, inline-promote, text-segment) now runs as an
-  // inspectedWindow.eval poller in devtools.js reading the page's REAL live
-  // DOM/CSSOM and POSTing straight to the dev server's apply engine — the CDP
-  // session never sees the user's edits (the original cross-session capture bug)
-  // and its DOM/attr/char-data handlers are already neutered. Attaching only cost
-  // Chrome's intrusive "started inspecting this browser" banner (browser-wide, on
-  // every tab) for a session nothing on the live path consumes. So we keep just
-  // the session record — postToPanel relays status/toast/pending over its port —
-  // and skip the attach entirely. `attached` stays false: stopSession then never
-  // detaches, and the (unused) get-computed path stays inert.
   return session;
 }
 
-async function stopSession(tabId, { detach = true } = {}) {
-  const session = sessions.get(tabId);
-  if (!session) return;
-  for (const t of session.debounce.values()) clearTimeout(t);
+async function stopSession(tabId) {
   sessions.delete(tabId);
-  if (detach && session.attached) await debuggerDetach(tabId);
 }
 
 function postToPanel(tabId, msg) {
@@ -120,14 +48,6 @@ function postToPanel(tabId, msg) {
   } catch {
     // Port gone (panel closed mid-flight); onDisconnect will clean up.
   }
-}
-
-function postError(tabId, context, err) {
-  postToPanel(tabId, {
-    type: "cdp-error",
-    context,
-    message: err instanceof Error ? err.message : String(err),
-  });
 }
 
 // Tell the tab's content script to remove the in-page HUD (DevTools closed).
@@ -185,138 +105,6 @@ function isDevTabUrl(url) {
   } catch {
     return false;
   }
-}
-
-// ---------------------------------------------------------------------------
-// CDP events
-// ---------------------------------------------------------------------------
-
-chrome.debugger.onEvent.addListener((source, method, params) => {
-  const tabId = source.tabId;
-  if (tabId === undefined || !sessions.has(tabId)) return;
-
-  switch (method) {
-    case "CSS.styleSheetAdded":
-      void onStyleSheetAdded(tabId, params.header);
-      break;
-    case "CSS.styleSheetChanged":
-      onStyleSheetChanged(tabId, params.styleSheetId);
-      break;
-    case "CSS.styleSheetRemoved":
-      sessions.get(tabId)?.sheets.delete(params.styleSheetId);
-      break;
-    default:
-      break;
-  }
-});
-
-async function onStyleSheetAdded(tabId, header) {
-  const session = sessions.get(tabId);
-  if (!session) return;
-  const ref = {
-    id: header.styleSheetId,
-    sourceURL: header.sourceURL ?? "",
-    ...(header.sourceMapURL ? { sourceMapURL: header.sourceMapURL } : {}),
-    origin: header.origin, // "regular" | "inspector" | "injected" | "user-agent"
-  };
-  try {
-    const { text } = await cdp(tabId, "CSS.getStyleSheetText", {
-      styleSheetId: header.styleSheetId,
-    });
-    session.sheets.set(header.styleSheetId, { ref, text });
-  } catch (err) {
-    // Some UA sheets refuse to serve text — snapshot as empty, never capture.
-    if (header.origin !== "user-agent") postError(tabId, "getStyleSheetText", err);
-    session.sheets.set(header.styleSheetId, { ref, text: "" });
-  }
-}
-
-function onStyleSheetChanged(tabId, styleSheetId) {
-  const session = sessions.get(tabId);
-  if (!session) return;
-  // DevTools fires styleSheetChanged per keystroke while the user types a
-  // value; debounce so we diff the settled text, not intermediate states.
-  clearTimeout(session.debounce.get(styleSheetId));
-  session.debounce.set(
-    styleSheetId,
-    setTimeout(() => {
-      session.debounce.delete(styleSheetId);
-      void diffAndEmit(tabId, styleSheetId);
-    }, DIFF_DEBOUNCE_MS)
-  );
-}
-
-async function diffAndEmit(tabId, styleSheetId) {
-  const session = sessions.get(tabId);
-  if (!session) return;
-  const snapshot = session.sheets.get(styleSheetId);
-  if (!snapshot) return; // sheet we never managed to snapshot
-  if (snapshot.ref.origin === "user-agent") return; // never capture UA sheets
-
-  let newText;
-  try {
-    ({ text: newText } = await cdp(tabId, "CSS.getStyleSheetText", { styleSheetId }));
-  } catch (err) {
-    postError(tabId, "getStyleSheetText", err);
-    return;
-  }
-  if (newText === snapshot.text) return;
-
-  let changes;
-  try {
-    changes = diffSheet(snapshot.ref, snapshot.text, newText);
-  } catch (err) {
-    postError(tabId, "diff", err);
-    snapshot.text = newText;
-    return;
-  }
-  snapshot.text = newText;
-
-  const element = session.lastElementContext ?? undefined;
-  for (const change of changes) {
-    postToPanel(tabId, {
-      type: "change",
-      change: element ? { ...change, element } : change,
-    });
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Computed-style reads (for the Verify round-trip)
-// ---------------------------------------------------------------------------
-
-async function getComputedStyles(tabId, checks) {
-  // checks: [{selector, property, expected}] -> VerifyCheck[] with `actual`.
-  const { root } = await cdp(tabId, "DOM.getDocument", { depth: 0 });
-  const results = [];
-  for (const check of checks) {
-    let actual = "";
-    try {
-      const { nodeId } = await cdp(tabId, "DOM.querySelector", {
-        nodeId: root.nodeId,
-        selector: check.selector,
-      });
-      if (nodeId) {
-        const { computedStyle } = await cdp(tabId, "CSS.getComputedStyleForNode", {
-          nodeId,
-        });
-        actual =
-          computedStyle.find((p) => p.name === check.property.toLowerCase())?.value ??
-          "";
-      } else {
-        actual = "<no element matches selector>";
-      }
-    } catch (err) {
-      actual = `<error: ${err instanceof Error ? err.message : String(err)}>`;
-    }
-    results.push({
-      selector: check.selector,
-      property: check.property,
-      expected: check.expected,
-      actual,
-    });
-  }
-  return results;
 }
 
 // ---------------------------------------------------------------------------
@@ -444,28 +232,6 @@ chrome.runtime.onConnect.addListener((port) => {
         break;
       }
 
-      case "get-computed": {
-        if (tabId === null || !sessions.get(tabId)?.attached) {
-          port.postMessage({
-            type: "computed-result",
-            requestId: msg.requestId,
-            error: "Not attached to the inspected tab",
-          });
-          break;
-        }
-        try {
-          const checks = await getComputedStyles(tabId, msg.checks);
-          port.postMessage({ type: "computed-result", requestId: msg.requestId, checks });
-        } catch (err) {
-          port.postMessage({
-            type: "computed-result",
-            requestId: msg.requestId,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-        break;
-      }
-
       case "pending-snapshot": {
         // devtools.js's pending-changes map changed — mirror it to any open
         // Source Sync panel for this tab (see the preview relay below).
@@ -491,11 +257,10 @@ chrome.runtime.onConnect.addListener((port) => {
 // ---------------------------------------------------------------------------
 // Preview-panel relay.
 //
-// The Source Sync panel (panel.html/panel.js) does NOT run its own
-// chrome.debugger session — devtools.js already holds the live capture
-// session for the tab, and a second `attach` here would steal it (sessions
-// are keyed by tabId; see the "attach" case above). Instead the panel opens a
-// SEPARATE port ("dev-sync-preview") that:
+// devtools.js already holds the live capture poller for the tab (keyed by
+// tabId; see the "attach" case above), so the Source Sync panel
+// (panel.html/panel.js) does NOT capture on its own. It opens a SEPARATE port
+// ("dev-sync-preview") that:
 //   - mirrors devtools.js's pending-changes map (pushed via "pending-snapshot"
 //     on devtools.js's own "dev-sync-panel" port, relayed here to the panel),
 //   - tells devtools.js to pause its autosave auto-commit while a panel is
@@ -563,17 +328,8 @@ chrome.runtime.onConnect.addListener((port) => {
   });
 });
 
-// User clicked "Cancel" on the yellow debugging banner, tab closed, or
-// another debugger took over.
-chrome.debugger.onDetach.addListener((source, reason) => {
-  const tabId = source.tabId;
-  if (tabId === undefined || !sessions.has(tabId)) return;
-  postToPanel(tabId, { type: "detached", reason });
-  void stopSession(tabId, { detach: false });
-});
-
 chrome.tabs.onRemoved.addListener((tabId) => {
-  if (sessions.has(tabId)) void stopSession(tabId, { detach: false });
+  if (sessions.has(tabId)) void stopSession(tabId);
 });
 
 // Ask the panel of the currently-focused tab to sync now. Shared by the

@@ -386,14 +386,14 @@ function connectPort() {
       case "attach-failed":
         attached = false;
         ackAttach();
-        // Most common cause: another chrome.debugger extension already attached.
-        console.warn(`[dev-sync] could not attach debugger: ${msg.message}`);
+        // The worker couldn't open a session for the tab (e.g. tab gone).
+        console.warn(`[dev-sync] could not attach session: ${msg.message}`);
         toastRaw(`CSS Sync: could not attach — ${msg.message}`, "warn");
         break;
 
       case "detached":
         attached = false;
-        console.warn(`[dev-sync] debugger detached (${msg.reason})`);
+        console.warn(`[dev-sync] session detached (${msg.reason})`);
         break;
 
       case "not-dev-host":
