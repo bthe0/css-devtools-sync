@@ -199,16 +199,44 @@ async function handle(
   sendJson(res, 200, verifyChecks(parsed.data));
 }
 
+/** Options for {@link createApplyMiddleware}. */
+export interface ApplyMiddlewareOptions {
+  /**
+   * Mount prefix the engine's routes live under (e.g. `/__dev-sync`). When set,
+   * this middleware strips the prefix itself before matching routes, and falls
+   * through on any path outside it. Use this where the host's mount seam does
+   * NOT strip the prefix for you — e.g. Nuxt/Nitro, which routes `/__dev-sync/*`
+   * to its SSR catch-all before Vite's connect stack sees it. Leave unset under
+   * Vite, where `server.middlewares.use(prefix, mw)` already strips it.
+   */
+  prefix?: string;
+}
+
 /**
  * Build the embedded apply-engine middleware. Mount it under a prefix on the
  * dev server (Vite: `server.middlewares.use("/__dev-sync", mw)`), so the
  * extension POSTs the inspected page's own origin — no separate port or CORS.
  * Requests to paths this middleware doesn't own fall through via `next()`.
+ *
+ * Pass `{ prefix }` when the mount seam does not strip the prefix (see
+ * {@link ApplyMiddlewareOptions.prefix}).
  */
-export function createApplyMiddleware(cfg: Config): ConnectMiddleware {
+export function createApplyMiddleware(cfg: Config, opts: ApplyMiddlewareOptions = {}): ConnectMiddleware {
   const log = consoleLogger();
+  const { prefix } = opts;
   return function devSyncApplyMiddleware(req, res, next) {
-    const pathname = (req.url ?? "").split("?")[0] ?? "";
+    let pathname = (req.url ?? "").split("?")[0] ?? "";
+    if (prefix) {
+      // Match the prefix on a path boundary so a same-stem sibling like
+      // `/__dev-syncx` is NOT mistaken for a child of `/__dev-sync`.
+      if (pathname !== prefix && !pathname.startsWith(prefix + "/")) {
+        next();
+        return;
+      }
+      // Route matching is relative to the prefix; `handle` still reads any query
+      // straight off `req.url`, so the query survives without mutating req.url.
+      pathname = pathname.slice(prefix.length) || "/";
+    }
     const expectedMethod = ROUTES[pathname];
     if (!expectedMethod) {
       next();
