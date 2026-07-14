@@ -153,6 +153,35 @@ describe("applySfcMarkup — set-text", () => {
 });
 
 // --------------------------------------------------------------------------
+// Line-offset safety — CRLF endings + multibyte/emoji content
+//
+// lineOffsets splits on "\n" only and every offset is a UTF-16 code-unit index
+// (slice/indexOf), so a lone "\r" rides inside its line as inert whitespace and
+// emoji/CJK never shift a splice. These pin that: a byte-offset regression or a
+// CRLF-eager split would corrupt the surrounding source.
+// --------------------------------------------------------------------------
+
+describe("applySfcMarkup — CRLF + multibyte offset safety", () => {
+  it("edits the target line on a CRLF file, preserving \\r\\n endings", () => {
+    const src = '<article style="p: 1px;">a</article>\r\n<article style="p: 2px;">b</article>\r\n';
+    const out = applySfcMarkup(src, attrChange(2, "style", "p: 9px;"));
+    expect(out).toBe('<article style="p: 1px;">a</article>\r\n<article style="p: 9px;">b</article>\r\n');
+  });
+
+  it("locates the right line when earlier lines carry emoji/CJK (UTF-16 offsets, not bytes)", () => {
+    const src = '<h3>café · 🎉 · 世界</h3>\n<article style="p: 1px;">x</article>\n';
+    const out = applySfcMarkup(src, attrChange(2, "style", "p: 9px;"));
+    expect(out).toBe('<h3>café · 🎉 · 世界</h3>\n<article style="p: 9px;">x</article>\n');
+  });
+
+  it("round-trips emoji/multibyte text through set-text without mangling code units", () => {
+    const src = "<h3>old</h3>\n";
+    const out = applySfcMarkup(src, textChange(1, "café 🎉 世界"));
+    expect(out).toBe("<h3>café 🎉 世界</h3>\n");
+  });
+});
+
+// --------------------------------------------------------------------------
 // Security & fidelity — the trust boundary (Phase A1 hardening)
 // --------------------------------------------------------------------------
 
