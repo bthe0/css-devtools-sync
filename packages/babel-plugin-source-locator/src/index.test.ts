@@ -118,6 +118,47 @@ describe("source-locator babel plugin", () => {
     });
   });
 
+  describe("CSS Modules import registration", () => {
+    it("registers a *.module.css default import's map with the root-relative css path", async () => {
+      const out = await transform(
+        `import styles from "./Button.module.css";\nfunction B() { return <button className={styles.btn} />; }\n`,
+      );
+      expect(out).toContain("registerCssModule");
+      // Resolved relative to the importer (/repo/src/components/Card.tsx) -> root-relative.
+      expect(out).toMatch(/registerCssModule as (\w+)/);
+      expect(out).toContain('("src/components/Button.module.css", styles)');
+    });
+
+    it("handles scss/sass/less module specifiers too", async () => {
+      const out = await transform(`import s from "../styles/x.module.scss";\nexport const v = s;\n`);
+      expect(out).toContain('("src/styles/x.module.scss", s)');
+    });
+
+    it("ignores a plain (non-module) css import", async () => {
+      const out = await transform(`import "./app.css";\nimport t from "./theme.css";\nexport const v = t;\n`);
+      expect(out).not.toContain("registerCssModule");
+    });
+
+    it("ignores a side-effect-only module import (no default binding, nothing to read)", async () => {
+      const out = await transform(`import "./Button.module.css";\nexport const v = 1;\n`);
+      expect(out).not.toContain("registerCssModule");
+    });
+
+    it("skips a bare/aliased module specifier it can't resolve to a file (fail-closed)", async () => {
+      const out = await transform(`import s from "@/Button.module.css";\nexport const v = s;\n`);
+      expect(out).not.toContain("registerCssModule");
+    });
+
+    it("imports registerCssModule exactly once for multiple module imports", async () => {
+      const out = await transform(
+        `import a from "./a.module.css";\nimport b from "./b.module.css";\nexport const v = [a, b];\n`,
+      );
+      expect(out.match(/registerCssModule as \w+/g)).toHaveLength(1);
+      expect(out).toContain('("src/components/a.module.css", a)');
+      expect(out).toContain('("src/components/b.module.css", b)');
+    });
+  });
+
   it("is a no-op when NODE_ENV is production", async () => {
     const prev = process.env.NODE_ENV;
     process.env.NODE_ENV = "production";

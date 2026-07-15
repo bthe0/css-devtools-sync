@@ -131,6 +131,24 @@ export function serializeSheets() {
 // calls serializeSheets() directly and gets the array back unwrapped).
 export const SERIALIZE_SHEETS = `(() => JSON.stringify((${serializeSheets.toString()})()))()`;
 
+/**
+ * Runs IN the inspected page. Snapshot the CSS Modules reverse index the
+ * build-time stampers populate (`window.__dsCssModules`): a served hashed class
+ * (`._title_1ah9a_9`) -> `{local, file}`. The server reverses a captured module
+ * selector back to its source selector + owning file with this — the CSSOM
+ * carries only the hash, which name-matches nothing in source. Empty object
+ * when no `<style module>` / `*.module.css` was stamped (the common case).
+ * @returns {import("@dev-sync/contract").CssModuleMap}
+ */
+export function serializeCssModules() {
+  return (typeof window !== "undefined" && window.__dsCssModules) || {};
+}
+
+// Eval-string twin of serializeCssModules() (same toString() derivation as
+// SERIALIZE_SHEETS) for inspectedWindow.eval; the harness calls the function
+// directly and gets the object unwrapped.
+export const SERIALIZE_CSS_MODULES = `(() => JSON.stringify((${serializeCssModules.toString()})()))()`;
+
 // ---------------------------------------------------------------------------
 // Element serialization
 //
@@ -216,17 +234,22 @@ export const SERIALIZE_ELEMENTS = `(() => JSON.stringify((${serializeElements.to
  * server starts honoring that default.
  * @param {import("@dev-sync/contract").CaptureChange[]} changes
  * @param {string} url
- * @param {{applyMode?: "commit"|"preview"}} [opts]
+ * @param {{applyMode?: "commit"|"preview", cssModuleMap?: import("@dev-sync/contract").CssModuleMap}} [opts]
  * @returns {import("@dev-sync/contract").CapturePayload}
  */
 export function buildPayload(changes, url, opts = {}) {
-  const { applyMode = "commit" } = opts;
+  const { applyMode = "commit", cssModuleMap } = opts;
   /** @type {import("@dev-sync/contract").CapturePayload} */
   const payload = {
     url,
     changes,
     applyMode,
   };
+  // Only attach the reverse map when the page actually stamped one — keeps the
+  // payload lean for the common (no CSS Modules) case; the field is optional.
+  if (cssModuleMap && Object.keys(cssModuleMap).length > 0) {
+    payload.cssModuleMap = cssModuleMap;
+  }
   return payload;
 }
 

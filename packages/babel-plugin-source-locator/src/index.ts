@@ -18,6 +18,8 @@ const syntaxJsx: unknown =
 
 /** Bare specifier of the browser runtime whose `__srcLocRef` we inject. */
 const RUNTIME_SOURCE = "@dev-sync/babel-plugin-source-locator/runtime";
+/** A CSS Modules import specifier: `*.module.(css|scss|sass|less)`, ignoring any `?query`. */
+const MODULE_CSS_RE = /\.module\.(?:css|scss|sass|less)(?:\?.*)?$/;
 
 export interface SourceLocatorOptions {
   /** Project root; emitted file paths are relative to this. Defaults to process.cwd(). */
@@ -96,6 +98,47 @@ export default function sourceLocatorBabelPlugin(api: BabelApi): PluginObj<
         state.set(
           "stampModule",
           !state.opts.requireUseClientDirective || hasUseClientDirective(programPath.node),
+        );
+      },
+      ImportDeclaration(importPath, state) {
+        // Register a `*.module.css` default import's `{local -> hash}` map into
+        // the page-global reverse index, so the CSS-modules capture channel can
+        // turn a served hash selector back into its source selector + file.
+        if (state.get("stampModule") === false) return;
+        const node = importPath.node;
+        const source = node.source.value;
+        if (!MODULE_CSS_RE.test(source)) return;
+        // Only a RELATIVE specifier resolves to a workspace file without the
+        // bundler's alias config; bare/aliased imports are skipped (fail-closed).
+        if (!source.startsWith("./") && !source.startsWith("../")) return;
+        // Need the default binding: `import styles from './x.module.css'`. A
+        // pure side-effect import (`import './x.module.css'`) has no map to read.
+        const defaultSpec = node.specifiers.find(
+          (s): s is t.ImportDefaultSpecifier => s.type === "ImportDefaultSpecifier",
+        );
+        if (!defaultSpec) return;
+        const filename = state.filename;
+        if (!filename) return;
+
+        const root = state.opts.root ?? state.cwd ?? process.cwd();
+        const abs = path.resolve(path.dirname(filename), source.replace(/\?.*$/, ""));
+        const relCss = path.relative(root, abs).split(path.sep).join("/");
+
+        // Import registerCssModule ONCE per module (addNamed doesn't dedupe).
+        let regName = state.get("registerCssModuleName") as string | undefined;
+        if (!regName) {
+          regName = addNamed(importPath, "registerCssModule", RUNTIME_SOURCE).name;
+          state.set("registerCssModuleName", regName);
+        }
+        // Emit `registerCssModule("<relCss>", styles);` right after the import;
+        // import bindings are hoisted, so the binding is live at module eval.
+        importPath.insertAfter(
+          t_.expressionStatement(
+            t_.callExpression(t_.identifier(regName), [
+              t_.stringLiteral(relCss),
+              t_.identifier(defaultSpec.local.name),
+            ]),
+          ),
         );
       },
       JSXOpeningElement(openingPath, state) {

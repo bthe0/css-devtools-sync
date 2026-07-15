@@ -82,4 +82,27 @@ describe("sourceLocatorVue", () => {
     const src = "<template><div>x</div></template>\n";
     expect(run(src, "/proj/src/Card.vue?vue&type=template")).toBe(src);
   });
+
+  it("registers a bare <style module> via useCssModule() (no name arg = $style)", () => {
+    const src =
+      '<template>\n  <div :class="$style.title">Hi</div>\n</template>\n\n<style module>\n.title { color: red; }\n</style>\n';
+    const out = run(src, "/proj/src/ModuleCard.vue");
+    expect(out).toContain('import { useCssModule as __ds_useCssModule } from "vue";');
+    expect(out).toContain("registerCssModule as __ds_registerCssModule");
+    expect(out).toContain('__ds_registerCssModule("src/ModuleCard.vue", __ds_useCssModule());');
+  });
+
+  it("registers a named <style module=\"foo\"> passing the name to useCssModule", () => {
+    const src =
+      '<template>\n  <div :class="foo.title">Hi</div>\n</template>\n\n<style module="foo">\n.title { color: red; }\n</style>\n';
+    const out = run(src, "/proj/src/Named.vue");
+    expect(out).toContain('__ds_registerCssModule("src/Named.vue", __ds_useCssModule("foo"));');
+  });
+
+  it("does NOT import the module registrar for an SFC with no <style module>", () => {
+    const src = "<template>\n  <div>Hi</div>\n</template>\n\n<style scoped>\n.x { color: red; }\n</style>\n";
+    const out = run(src);
+    expect(out).not.toContain("registerCssModule");
+    expect(out).not.toContain("useCssModule");
+  });
 });

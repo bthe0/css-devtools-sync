@@ -99,6 +99,16 @@ export function extractStyleBlocks(sfc: string): StyleBlock[] {
 export interface ApplySfcOptions {
   /** Original-source position the sourcemap resolved, when one exists. */
   position?: RulePosition | undefined;
+  /**
+   * Permit editing a `<style module>` block. Off by default: a served module
+   * selector is an opaque hash the server can't reverse alone, so it MUST skip.
+   * The orchestrator sets this ONLY after it has already reversed the served
+   * hash to a real source-local selector via the client-supplied module export
+   * map (see apply.ts short-circuit) — i.e. `change.selector` here is a
+   * genuine source name (`.title`), not a hash. Keeping it fail-closed means an
+   * un-reversed module edit still skips-with-reason rather than mis-writing.
+   */
+  allowModule?: boolean;
 }
 
 export interface ApplySfcResult {
@@ -195,7 +205,7 @@ export function applySfcChange(
     );
   }
 
-  if (target.module) {
+  if (target.module && !opts.allowModule) {
     throw new SkipChangeError(
       `matched a <style module> block, but its served selector can't be reversed to the source selector without the module export map — unsupported`,
     );

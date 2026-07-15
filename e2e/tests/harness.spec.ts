@@ -20,9 +20,8 @@ import path from "node:path";
 // paths — a CSS modify (mode varies by sheet tier: sourcemap / postcss /
 // vanilla-extract) and a set-attr element edit (mode jsx, which also proves the
 // harness-main.js MAIN-world __srcLoc bridge fires under that framework's
-// runtime). vue additionally drives the promote-inline-on-an-SFC path, and
-// surfaces the <style module> gap (a served hash reverses to nothing in
-// source without an export map, so its edit is refused, not clobbered).
+// runtime). vue additionally drives the <style module> name-map channel (hash
+// reversed to source via useCssModule()) and the promote-inline-on-an-SFC path.
 // astro (static HTML, no client
 // runtime) and ve (innerHTML DOM) tag no node with __srcLoc, so their element
 // path is expected to capture nothing.
@@ -107,10 +106,11 @@ const PROJECTS: ProjectCfg[] = [
   },
   {
     name: "solid",
-    // Solid's `*.module.css` served sheet carries an inline sourcemap, so the
-    // modify resolves the served hashed selector back to `.card` + Card.module.css
-    // via the sourcemap tier.
-    css: { kind: "module", prop: "padding", value: "40px", expectMode: "sourcemap", file: "solid-app/src/Card.module.css", diskContains: "padding: 40px" },
+    // A `*.module.css` default import registers its `{local -> hash}` map (babel
+    // ImportDeclaration visitor), so the modify reverses the served hash back to
+    // `.card` + Card.module.css via the name-map channel → postcss apply, rather
+    // than the served-sheet sourcemap tier.
+    css: { kind: "module", prop: "padding", value: "40px", expectMode: "postcss", file: "solid-app/src/Card.module.css", diskContains: "padding: 40px" },
     element: { selector: "article", attr: "title", value: ATTR_VALUE, expectMode: "jsx", file: "solid-app/src/Card.tsx", diskContains: `title="${ATTR_VALUE}"` },
   },
   {
@@ -266,31 +266,32 @@ test.describe("vue gaps", () => {
     test.skip(testInfo.project.name !== "vue", "drives the vue-app harness dialog");
   });
 
-  test("a <style module> CSS modify is refused (no export map to reverse the served hash)", async ({ page }) => {
-    // <style module> compiles `.title` to an opaque `._title_<hash>`. The served
-    // CSSOM carries only that hash, which name-matches nothing in source, and the
-    // server has no `{local -> hash}` export map to reverse it (that channel does
-    // not exist yet). So the edit must be REFUSED with a reason — never clobber a
-    // wrong rule. This pins the gap the name-map channel will later close.
-    const pristine = fs.readFileSync(MODULE_SFC, "utf8");
-    await page.goto("/?dsHarness=1");
-    await expect(page.locator("#ds-h-run")).toBeVisible();
+  test("a <style module> CSS modify is reversed via the name-map channel and written to source", async ({ page }) => {
+    // <style module> compiles `.title` to an opaque `._title_<hash>`. The Vue
+    // stamper registers the block's live `{local -> hash}` map (useCssModule())
+    // into `window.__dsCssModules`; the harness ships that map with the payload
+    // and the server reverses the hash back to `.title` + ModuleCard.vue, then
+    // splices the edit into the SFC's `<style module>` block. This drives the
+    // full name-map channel end-to-end — capture, transport, reverse, apply.
+    await withPristine(MODULE_SFC, async () => {
+      await page.goto("/?dsHarness=1");
+      await expect(page.locator("#ds-h-run")).toBeVisible();
 
-    const selector = await page.evaluate(() => {
-      const h3 = document.querySelector('h3[class*="_title_"]');
-      if (!h3) throw new Error("module card h3 (._title_*) not found");
-      const cls = [...h3.classList].find((c) => c.startsWith("_title_"));
-      if (!cls) throw new Error("no _title_* class on the module card h3");
-      return "." + cls;
+      const selector = await page.evaluate(() => {
+        const h3 = document.querySelector('h3[class*="_title_"]');
+        if (!h3) throw new Error("module card h3 (._title_*) not found");
+        const cls = [...h3.classList].find((c) => c.startsWith("_title_"));
+        if (!cls) throw new Error("no _title_* class on the module card h3");
+        return "." + cls;
+      });
+
+      const result = await runHarness(page, { selector, op: "modify", prop: "color", value: "rgb(1, 2, 3)" });
+      await expect(result).toHaveAttribute("data-status", "ok");
+      await expect(result).toHaveAttribute("data-applied-count", "1");
+      await expect(result).toHaveAttribute("data-mode", "postcss");
+
+      expect(fs.readFileSync(MODULE_SFC, "utf8")).toContain("rgb(1, 2, 3)");
     });
-
-    const result = await runHarness(page, { selector, op: "modify", prop: "color", value: "rgb(1, 2, 3)" });
-    await expect(result).toHaveAttribute("data-status", "ok");
-    await expect(result).toHaveAttribute("data-applied-count", "0");
-    await expect(result).toHaveAttribute("data-skipped-count", "1");
-
-    // Fail-closed: the source SFC is left byte-for-byte untouched.
-    expect(fs.readFileSync(MODULE_SFC, "utf8")).toBe(pristine);
   });
 
   test("a promote-inline on a Vue SFC element splices an inline style attr into source", async ({ page }) => {

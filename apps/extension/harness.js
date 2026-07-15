@@ -240,7 +240,11 @@ async function runOnce({ op, selector, prop, value }) {
     };
   }
   const base = location.origin + MOUNT_PREFIX;
-  const payload = core.buildPayload(changes, location.href, { applyMode: "commit" });
+  // The CSS-modules reverse map (`window.__dsCssModules`) is stamped into the
+  // MAIN world, which this isolated content-script world can't read directly —
+  // same cross-world gap as __srcLoc. Fetch it over the eval bridge.
+  const cssModuleMap = JSON.parse(await evalInMain(core.SERIALIZE_CSS_MODULES));
+  const payload = core.buildPayload(changes, location.href, { applyMode: "commit", cssModuleMap });
   const apply = await core.postApply(base, payload);
   if (!apply.ok) {
     return { status: "http-error", httpStatus: apply.status, body: apply.body, payload };

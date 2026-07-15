@@ -21,6 +21,10 @@ import type { Plugin } from "vite";
 const RUNTIME_SOURCE = "@dev-sync/babel-plugin-source-locator/runtime";
 /** Local alias for the imported helper — unlikely to collide with user code. */
 const HELPER = "__ds_srcloc";
+/** Local alias for the CSS-modules reverse-map registrar. */
+const REGISTER = "__ds_registerCssModule";
+/** Local alias for Vue's `useCssModule` — reads the live `{local -> hash}` map in setup scope. */
+const USE_CSS_MODULE = "__ds_useCssModule";
 
 export interface VueStampOptions {
   /** Project root used to relativise stamped source paths. Default: process.cwd(). */
@@ -108,9 +112,11 @@ export function sourceLocatorVue(opts: VueStampOptions = {}): Plugin {
       }
 
       const ast = descriptor.template?.ast as AstNode | undefined;
-      if (!ast) return undefined;
-      const elements = collectElements(ast);
-      if (elements.length === 0) return undefined;
+      const elements = ast ? collectElements(ast) : [];
+      // `<style module>` / `<style module="foo">` blocks: their `{local -> hash}`
+      // export map is what the CSS-modules capture channel reverses against.
+      const moduleStyles = (descriptor.styles ?? []).filter((s) => s.module);
+      if (elements.length === 0 && moduleStyles.length === 0) return undefined;
 
       const rel = path.relative(root, file).split(path.sep).join("/");
       const component = path.basename(file).replace(/\.vue$/, "");
@@ -128,13 +134,30 @@ export function sourceLocatorVue(opts: VueStampOptions = {}): Plugin {
         );
       }
 
-      const importStmt = `\nimport { stampSrcLoc as ${HELPER} } from ${JSON.stringify(RUNTIME_SOURCE)};`;
+      // Assemble the setup-scope injection: only import what this SFC needs.
+      const runtimeImports: string[] = [];
+      if (elements.length > 0) runtimeImports.push(`stampSrcLoc as ${HELPER}`);
+      if (moduleStyles.length > 0) runtimeImports.push(`registerCssModule as ${REGISTER}`);
+      const importStmt = `\nimport { ${runtimeImports.join(", ")} } from ${JSON.stringify(RUNTIME_SOURCE)};`;
+
+      let injected = importStmt;
+      if (moduleStyles.length > 0) {
+        // Read the LIVE map via Vue's own useCssModule (must run in setup scope),
+        // so it's correct under any custom generateScopedName. A named block uses
+        // its name; a bare `<style module>` is Vue's default `$style` (no arg).
+        injected += `\nimport { useCssModule as ${USE_CSS_MODULE} } from "vue";`;
+        for (const s of moduleStyles) {
+          const nameArg = typeof s.module === "string" ? JSON.stringify(s.module) : "";
+          injected += `\n${REGISTER}(${JSON.stringify(rel)}, ${USE_CSS_MODULE}(${nameArg}));`;
+        }
+      }
+
       if (descriptor.scriptSetup) {
         // Inject at the start of the <script setup> CONTENT (loc excludes the tags).
-        ms.appendLeft(descriptor.scriptSetup.loc.start.offset, importStmt);
+        ms.appendLeft(descriptor.scriptSetup.loc.start.offset, injected);
       } else {
         // No <script setup> — prepend one so the template can see the binding.
-        ms.prepend(`<script setup>${importStmt}\n</script>\n`);
+        ms.prepend(`<script setup>${injected}\n</script>\n`);
       }
 
       return { code: ms.toString(), map: ms.generateMap({ hires: true, source: file }) };

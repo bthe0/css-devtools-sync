@@ -272,6 +272,26 @@ export const CaptureChangeSchema = z.discriminatedUnion("op", [
 ]);
 export type CaptureChange = z.infer<typeof CaptureChangeSchema>;
 
+/**
+ * Reverse map for CSS Modules, captured at build time from each framework's
+ * own compiled export (`{local -> hash}`) — NOT parsed out of the hash string,
+ * so it stays correct under any custom `generateScopedName`. Keyed by the
+ * SERVED hashed class name (e.g. `_title_1ah9a_9`), each entry names the source
+ * local class (`title`) and the owning source file (a `.vue` SFC whose
+ * `<style module>` block the server edits, or a plain `.module.css` file). The
+ * server uses this to reverse a hashed CSSOM selector back to a source-matching
+ * selector before applying — see css-module-map.ts.
+ */
+export const CssModuleEntrySchema = z.object({
+  /** Source-authored local class name, e.g. `title`. */
+  local: z.string().min(1).max(2000),
+  /** Owning source file (workspace-relative or dev-server id), e.g. `src/ModuleCard.vue`. */
+  file: z.string().min(1).max(4000),
+});
+export type CssModuleEntry = z.infer<typeof CssModuleEntrySchema>;
+export const CssModuleMapSchema = z.record(z.string().min(1).max(2000), CssModuleEntrySchema);
+export type CssModuleMap = z.infer<typeof CssModuleMapSchema>;
+
 /** POST body: extension -> server, one sync batch. */
 export const CapturePayloadSchema = z.object({
   /** URL of the inspected page. */
@@ -288,6 +308,12 @@ export const CapturePayloadSchema = z.object({
    */
   workspaceHint: z.string().optional(),
   changes: z.array(CaptureChangeSchema).max(500),
+  /**
+   * Build-time CSS Modules reverse map (see CssModuleMapSchema). Optional and
+   * capped: older clients omit it (their module-class edits keep skipping as
+   * before), and the cap bounds the payload a compromised page could send.
+   */
+  cssModuleMap: CssModuleMapSchema.optional(),
   /**
    * Two-phase apply. `preview` (default) runs the full pipeline but writes
    * NOTHING to disk — every outcome carries a `diff` the client shows for

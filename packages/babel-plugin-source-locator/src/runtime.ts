@@ -16,6 +16,46 @@ export interface SrcLoc {
   dataSourceComponent?: string;
 }
 
+/** One reverse-map entry: a compiled hash class -> its source-local name + owning file. */
+export interface CssModuleRegistration {
+  local: string;
+  file: string;
+}
+
+/**
+ * Register a CSS Modules `{local -> hash}` export map (Vue's `useCssModule()`
+ * result, or a `*.module.css` default import) into a page-global reverse index
+ * `window.__dsCssModules[hash] = {local, file}`. The capture layer reads this to
+ * turn an opaque served selector (`._title_1ah9a_9`) back into the source
+ * selector (`.title`) + owning file — the CSS Modules analogue of `__srcLoc`.
+ *
+ * We read the framework's OWN map rather than parsing the hash string, so it's
+ * correct under any custom `generateScopedName`. Composition (`composes:`) makes
+ * a value a space-joined token list; each token is registered under the same
+ * local (the class's own-hash rule is what a reversed selector needs; composed
+ * tokens' own rules are registered by their defining module too). Dev-only and
+ * best-effort: a non-DOM/global-less environment or a malformed map is a no-op.
+ */
+export function registerCssModule(
+  file: string,
+  map: Record<string, string> | null | undefined,
+): void {
+  if (!map || typeof map !== "object") return;
+  const g: { __dsCssModules?: Record<string, CssModuleRegistration> } =
+    typeof window !== "undefined"
+      ? (window as unknown as { __dsCssModules?: Record<string, CssModuleRegistration> })
+      : (globalThis as { __dsCssModules?: Record<string, CssModuleRegistration> });
+  const reg = (g.__dsCssModules ??= {});
+  for (const local in map) {
+    if (!Object.prototype.hasOwnProperty.call(map, local)) continue;
+    const hashed = map[local];
+    if (typeof hashed !== "string" || hashed.length === 0) continue;
+    for (const token of hashed.split(/\s+/)) {
+      if (token) reg[token] = { local, file };
+    }
+  }
+}
+
 type UserRef =
   | ((node: Element | null) => void | (() => void))
   | { current: Element | null }
