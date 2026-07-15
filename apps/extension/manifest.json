@@ -39,8 +39,24 @@
   "content_scripts": [
     {
       "matches": ["http://localhost/*", "http://127.0.0.1/*"],
-      "js": ["content-script.js"],
+      "js": ["content-script.js", "harness.js"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": ["http://localhost/*", "http://127.0.0.1/*"],
+      "js": ["harness-main.js"],
+      "world": "MAIN",
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "capture-core.js",
+        "background/diff.js",
+        "background/sourcemap-url.js"
+      ],
+      "matches": ["http://localhost/*", "http://127.0.0.1/*"]
     }
   ]
 }

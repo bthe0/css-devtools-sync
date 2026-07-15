@@ -12,6 +12,7 @@ import type {
   Confidence,
   FileDiff,
   RequiredElementContext,
+  SetAttrChange,
   SkippedChange,
   TemplateResponse,
 } from "@dev-sync/contract";
@@ -297,6 +298,37 @@ async function applyOne(
 
   // --- Tier: inline-style promote -> generated class + overrides CSS rule ---
   if (change.op === "promote-inline-style") {
+    // SFC templates (.vue/.svelte/.astro) have no class-injection path: the
+    // class-list tier refuses them and the SFC markup tier refuses `class`, so
+    // there's no way to hang a generated `csync-*` class off the element. An
+    // inline `style="…"` attribute IS idiomatic and statically splice-able in an
+    // SFC template though, and the poller always sends the FULL current inline
+    // declaration set (not a delta), so overwriting the attribute wholesale is
+    // idempotent. Route SFC elements through the SFC markup tier as a set-attr
+    // style — a dynamic `:style`/`v-bind` binding there is refused, not clobbered.
+    if (isSfcLike(change.element.dataSourceFile)) {
+      const cssText = change.declarations
+        .map((d) => `${d.property}: ${d.value}`)
+        .join("; ");
+      const styleChange: SetAttrChange = {
+        op: "set-attr",
+        element: change.element,
+        attribute: "style",
+        value: cssText,
+      };
+      const res = applySfcMarkupChange(cfg.workspaceRoot, styleChange);
+      const rel = toWorkspaceRelative(cfg.workspaceRoot, res.file);
+      return {
+        change,
+        file: rel,
+        line: res.line,
+        mode: "promote",
+        confidence: "deterministic",
+        confidenceReason:
+          "inline style spliced onto the stamped SFC element (SFC templates have no class-injection path)",
+        writes: [{ absFile: res.file, relFile: rel, before: res.before, after: res.after }],
+      };
+    }
     const res = applyInlinePromote(change, cfg);
     return {
       change,
