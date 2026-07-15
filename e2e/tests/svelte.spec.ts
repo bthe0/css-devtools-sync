@@ -93,3 +93,111 @@ test("a committed Styles-panel edit writes Card.svelte's <style> block on disk",
     fs.writeFileSync(SFC_PATH, before);
   }
 });
+
+// --------------------------------------------------------------------------
+// Markup tier — the shared line-anchored SFC byte-splice. The stamp
+// preprocessor puts a valid `__srcLoc` on each static element at runtime, so
+// the extension emits set-attr/set-text changes carrying the element's
+// `dataSourceFile` + `dataSourceLine`. These specs POST those change shapes
+// directly (the extension can't be Playwright-driven inside DevTools) and
+// assert the server writes the .svelte SOURCE, static edits apply, and a
+// dynamic `{expr}` body is refused rather than corrupted.
+// --------------------------------------------------------------------------
+
+const REL = "src/lib/Card.svelte";
+
+/** Read pristine source, run `body`, always restore the file afterwards. */
+async function withPristine(body: (pristine: string) => Promise<void>): Promise<void> {
+  const pristine = fs.readFileSync(SFC_PATH, "utf8");
+  try {
+    await body(pristine);
+  } finally {
+    fs.writeFileSync(SFC_PATH, pristine);
+  }
+}
+
+test("a committed set-attr on the static <article> inserts style= into Card.svelte source", async ({
+  request,
+}) => {
+  await withPristine(async () => {
+    const applyRes = await request.post("/__dev-sync/apply", {
+      data: {
+        url: "http://localhost:5499/",
+        applyMode: "commit",
+        changes: [
+          {
+            op: "set-attr",
+            element: { tagName: "article", classList: ["card"], dataSourceFile: REL, dataSourceLine: 5 },
+            attribute: "style",
+            value: "padding: 24px;",
+          },
+        ],
+      },
+    });
+    expect(applyRes.status(), await applyRes.text()).toBe(200);
+    const result = await applyRes.json();
+    expect(result.applied, JSON.stringify(result)).toHaveLength(1);
+    expect(result.applied[0].mode).toBe("jsx");
+
+    const after = fs.readFileSync(SFC_PATH, "utf8");
+    // Inserted right after the tag name, class preserved; <style> block untouched.
+    expect(after).toContain('<article style="padding: 24px;" class="card">');
+    expect(after).toContain("padding: 20px;"); // the .card rule inside <style> is a different tier
+  });
+});
+
+test("a committed set-text on the static <p> rewrites its body in Card.svelte source", async ({
+  request,
+}) => {
+  await withPristine(async () => {
+    const applyRes = await request.post("/__dev-sync/apply", {
+      data: {
+        url: "http://localhost:5499/",
+        applyMode: "commit",
+        changes: [
+          {
+            op: "set-text",
+            element: { tagName: "p", classList: [], dataSourceFile: REL, dataSourceLine: 7 },
+            newText: "Edited via DevTools",
+            oldText: "Scoped style tier",
+          },
+        ],
+      },
+    });
+    expect(applyRes.status(), await applyRes.text()).toBe(200);
+    const result = await applyRes.json();
+    expect(result.applied, JSON.stringify(result)).toHaveLength(1);
+    expect(result.applied[0].mode).toBe("jsx");
+
+    const after = fs.readFileSync(SFC_PATH, "utf8");
+    expect(after).toContain("<p>Edited via DevTools</p>");
+    expect(after).not.toContain("Scoped style tier");
+    // The dynamic sibling <h3>{title}</h3> is byte-identical.
+    expect(after).toContain('<h3 class="card-title">{title}</h3>');
+  });
+});
+
+test("a set-text on the dynamic <h3>{title}</h3> is refused, not corrupted", async ({ request }) => {
+  await withPristine(async (pristine) => {
+    const applyRes = await request.post("/__dev-sync/apply", {
+      data: {
+        url: "http://localhost:5499/",
+        applyMode: "commit",
+        changes: [
+          {
+            op: "set-text",
+            element: { tagName: "h3", classList: ["card-title"], dataSourceFile: REL, dataSourceLine: 6 },
+            newText: "Hardcoded",
+          },
+        ],
+      },
+    });
+    expect(applyRes.status(), await applyRes.text()).toBe(200);
+    const result = await applyRes.json();
+    expect(result.applied).toHaveLength(0);
+    expect(result.skipped, JSON.stringify(result)).toHaveLength(1);
+    expect(result.skipped[0].reason).toMatch(/non-text or dynamic/i);
+    // Source is byte-identical — a refused edit never touches disk.
+    expect(fs.readFileSync(SFC_PATH, "utf8")).toBe(pristine);
+  });
+});

@@ -102,7 +102,7 @@ export default createDevSyncHandler();
 
 ### Examples
 
-Runnable in [`examples/`](./examples): [`next-app`](./examples/next-app) (Next.js App Router, `next dev --webpack`, port 4300), [`vite-react`](./examples/vite-react) (Vite + React, port 5299), [`vue-app`](./examples/vue-app) (Vue 3 SFC, port 5399), [`svelte-app`](./examples/svelte-app) (Svelte 5, port 5499), and [`ve-app`](./examples/ve-app) (vanilla-extract `.css.ts`, port 5599) — each demoing multiple styling tiers on one page.
+Runnable in [`examples/`](./examples): [`next-app`](./examples/next-app) (Next.js App Router, `next dev --webpack`, port 4300), [`vite-react`](./examples/vite-react) (Vite + React, port 5299), [`vue-app`](./examples/vue-app) (Vue 3 SFC, port 5399), [`svelte-app`](./examples/svelte-app) (Svelte 5, port 5499), [`ve-app`](./examples/ve-app) (vanilla-extract `.css.ts`, port 5599), [`astro-app`](./examples/astro-app) (Astro `.astro` SFC + markup tier, port 5699), [`solid-app`](./examples/solid-app) (SolidStart / Vite + Solid, port 5799), and [`nuxt-app`](./examples/nuxt-app) (Nuxt 4, engine on a Nitro dev middleware, port 5899) — each demoing multiple styling tiers on one page.
 
 ## Monorepo layout
 
@@ -126,6 +126,9 @@ examples/
   vue-app/                       Vue 3 SFC demo — <style scoped> + <style module> (port 5399)
   svelte-app/                    Svelte 5 demo — component-scoped <style> (port 5499)
   ve-app/                        vanilla-extract demo — style({...}) in .css.ts (port 5599)
+  astro-app/                     Astro demo — .astro <style> SFC + markup tier (port 5699)
+  solid-app/                     SolidStart / Vite + Solid demo (port 5799)
+  nuxt-app/                      Nuxt 4 demo — engine on a Nitro dev middleware (port 5899)
 e2e/                             @dev-sync/e2e — Playwright suite: loads the unpacked
                                  extension, drives the live examples end-to-end
 ```
@@ -138,9 +141,10 @@ Frameworks split three ways:
 
 | Bucket | Frameworks | Integration |
 |---|---|---|
-| **Vite-plugin** (editable `plugins` array) | Vue, Svelte, Qwik, plain React+Vite | `@dev-sync/vite` — `devSync()` in your config |
+| **Vite-plugin** (editable `plugins` array) | Vue, Svelte, Astro, SolidStart, Qwik, plain React+Vite | `@dev-sync/vite` — `devSync()` in your config (Astro via the `vite` key + `sourceLocatorAstro()`) |
 | **Next.js (webpack dev)** | Next.js App Router | `@dev-sync/webpack` — `withDevSync()` + engine handler + `.babelrc` (see [above](#nextjs-app-router)) |
-| **Not yet supported** | Nuxt, Astro, SvelteKit, Remix, SolidStart | detected & skipped by `init` with a note |
+| **Own-server frameworks** (Vite in middleware-mode) | Nuxt | `devSync({ engine: false })` in `vite.plugins` + a dev-only server middleware that mounts the engine on the host server (Nuxt: Nitro owns HTTP routing and intercepts `/__dev-sync/*` before Vite — see [`examples/nuxt-app`](./examples/nuxt-app)) |
+| **Not yet supported** | SvelteKit, Remix | detected & skipped by `init` with a note |
 
 > **Turbopack:** Next's `next dev` defaults to Turbopack, which has no stable plugin API — run `next dev --webpack`. The webpack path is where `withDevSync` attaches.
 
@@ -157,7 +161,9 @@ Frameworks split three ways:
 | `Card.svelte` | Svelte component `<style>` | `.card.svelte-*` scoped rules | the `<style>` block in `Card.svelte` | `postcss` |
 | `card.css.ts` | vanilla-extract `style({...})` | `<file>_<export>__<hash>` classes (incl. `:hover` / `@media`) | the `style({...})` object in `card.css.ts` | `vanilla-extract` |
 
-The last three are the **SFC tier** (Vue/Svelte `.vue`/`.svelte` `<style>` blocks — edited in place, template/script byte-identical) and the **vanilla-extract tier** (`.css.ts` `style({...})` object literals — attribution by parsing the served debug class name, since VE emits no usable sourcemap). vanilla-extract v1 edits plain `style({...})` objects (flat + `selectors`/`@media` nesting); `styleVariants`, `recipe`, and array/multi-arg composition skip with a clear reason rather than guess.
+Three of these are the **SFC tier** (Vue/Svelte/Astro `.vue`/`.svelte`/`.astro` `<style>` blocks — edited in place via each compiler's inline sourcemap, template/script byte-identical) and the **vanilla-extract tier** (`.css.ts` `style({...})` object literals — attribution by parsing the served debug class name, since VE emits no usable sourcemap). vanilla-extract v1 edits plain `style({...})` objects (flat + `selectors`/`@media` nesting); `styleVariants`, `recipe`, and array/multi-arg composition skip with a clear reason rather than guess.
+
+`StaticBlock` is the **markup tier** (apply mode `jsx`): set-attr (inline `style=`, `aria-label`, `title`, …) and set-text edits routed to the element's source via the off-DOM `__srcLoc` — JSX host elements get it from the Babel source-locator; `.vue`/`.svelte`/`.astro` static elements get it from each framework's stamper (Astro via a transient `data-devloc` harvested into `__srcLoc` before first paint). v1 is **static-only**: a literal text node or attribute is spliced by a shared line-anchored SFC byte-editor, but a dynamic body/attr (`{{expr}}`, `{expr}`, `<h2>{title}</h2>`) is **refused with a reason rather than corrupted** — the source stays byte-identical.
 
 ## Local development
 

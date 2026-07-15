@@ -1,9 +1,0 @@
-{
-  "pid": 2408,
-  "startedAt": 1783949709463,
-  "command": "dev",
-  "cwd": "/Users/theo/Desktop/projects/css-devtools-sync/examples/nuxt-app",
-  "port": 5899,
-  "hostname": "::1",
-  "url": "http://[::1]:5899"
-}

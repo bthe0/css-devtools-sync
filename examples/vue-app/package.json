@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@dev-sync/babel-plugin-source-locator": "workspace:*",
     "@dev-sync/vite": "workspace:*",
     "vue": "^3.5.39"
   },

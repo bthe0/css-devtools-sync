@@ -610,6 +610,28 @@ describe("applyJsxChange — set-text-segment", () => {
     expect(() => applyJsxChange(root, change)).toThrow(/no child at index/);
     expect(fs.readFileSync(absFile, "utf8")).toBe(before);
   });
+
+  it("splices the exact range when earlier content carries emoji/CJK (Babel offsets are UTF-16, matching String.slice)", () => {
+    // If the manual code.slice() splice ever mixed byte offsets with Babel's
+    // UTF-16 char offsets, the astral 🎉 (2 code units, 4 UTF-8 bytes) ahead of
+    // the target segment would shear the replacement mid-string.
+    const { root, relFile, absFile } = makeWorkspace(
+      `export function G({ name }) {\n  return (\n    <p>Hi 🎉 {name}, 世界 done!</p>\n  );\n}\n`,
+    );
+    const before = fs.readFileSync(absFile, "utf8");
+    applyJsxChange(root, {
+      op: "set-text-segment",
+      element: element(relFile, 3, { tagName: "p" }),
+      segmentIndex: 2, // ", 世界 done!"
+      oldText: ", 世界 done!",
+      newText: ", 世界 finished!",
+    });
+    const out = fs.readFileSync(absFile, "utf8");
+    // byte-exact: only the targeted run changes, emoji + hole untouched.
+    expect(out).toBe(before.replace(", 世界 done!", ", 世界 finished!"));
+    expect(out).toContain("Hi 🎉 ");
+    expect(out).toContain("{name}");
+  });
 });
 
 // ---------------------------------------------------------------------------

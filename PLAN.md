@@ -1,6 +1,6 @@
 # PLAN — framework examples + vanilla-extract tier
 
-Branch: `feat/framework-examples` (checkpoint commit per phase; not `main`).
+Branch: `main` (user-locked decision — work lands directly on main; never pushed).
 Goal: add Vue + Svelte example apps, a vanilla-extract mapping tier, E2E per framework.
 Grounded by the arch map (2026-07-13). One tier touches: `apps/extension/devtools.js`
 (mappable gate/marker) → `packages/contract` (schema, only if new fields) → `apps/server`
@@ -53,7 +53,7 @@ referential no-op sourcemap (no line path). Flat props: camelCase↔kebab 1:1. N
 - [x] 3e `examples/ve-app` scaffolded (card flat + fancy :hover/@media); 3 preview-probes PASS.
 - [x] v1 SCOPE-OUT enforced (skip-with-reason, tested): styleVariants/recipe/style([array])/
       style(base,{...}) composition, computed keys, dynamic values, missing @media/selectors path.
-- [ ] 3f checkpoint commit.
+- [x] 3f checkpoint commit (folded into the final framework-examples commit on main).
 
 ## Phase 4 — E2E per framework  ✅ DONE
 - [x] playwright `projects[]` + `webServer[]` for vue(5399)/svelte(5499)/ve(5599) (config +30 -0,
@@ -64,23 +64,41 @@ referential no-op sourcemap (no line path). Flat props: camelCase↔kebab 1:1. N
       → compiled fallback), ve mode:"vanilla-extract". 15/15 green for the 3 projects, examples
       clean after (restores verified).
 - [x] checkpoint commit.
-- ⚠️ PRE-EXISTING (NOT this program): `undo-keybind.spec.ts:57 [vite]` (React App.css disk-revert
-      via Cmd/Ctrl+Z→redo keypress) fails consistently — extension redo-keybind UI, zero overlap
-      with the server routing changes here. Same area as this session's earlier C-flight/redo work.
-      Flag for separate investigation; do not block the framework program on it.
+- ✅ RESOLVED: `undo-keybind.spec.ts:57 [vite]` (React App.css disk-revert via Cmd/Ctrl+Z→redo
+      keypress), previously flagged PRE-EXISTING, now passes headless in the full run.
+
+### Later: markup tier (set-attr / set-text) + Astro/Solid/Nuxt examples  ✅ DONE
+- [x] markup tier (apply mode `jsx`): static set-attr (inline `style=`, `aria-label`, `title`) +
+      set-text spliced via a shared line-anchored SFC byte-editor, attributed by off-DOM `__srcLoc`
+      (Babel locator for JSX; per-framework stampers for `.vue`/`.svelte`/`.astro`). Static-only —
+      dynamic body/attr refused-with-reason, source byte-identical. `stampSrcLoc` extracted as the
+      framework-neutral core shared by React's callback ref + the SFC stampers.
+- [x] `examples/astro-app` (5699): `.astro` `<style>` rides the sfc tier (Astro compiler inline
+      sourcemap, `data-astro-cid-*` scope strip); markup tier via `sourceLocatorAstro()` +
+      transient `data-devloc` harvested into `__srcLoc` before first paint.
+- [x] `examples/solid-app` (5799): Vite + `vite-plugin-solid`, engine via `devSync()` default mount.
+- [x] `examples/nuxt-app` (5899): Nuxt 4 runs Vite in middleware-mode inside Nitro, which owns HTTP
+      routing and SSRs `/__dev-sync/*` before Vite's connect stack. FIX = `devSync({ engine: false })`
+      + a dev-only Nitro server middleware (`server/middleware/dev-sync.ts`) that strips the mount
+      prefix and delegates to `createApplyMiddleware`. `import.meta.dev`-guarded (no-op in prod build).
+- [x] E2E: astro/solid/nuxt playwright projects (5699/5799/5899) + specs. Full suite **48 passed,
+      0 failed** across 8 examples (vite/next/vue/svelte/ve/astro/solid/nuxt).
 
 ## Phase 5 — docs + "more frameworks"
-- [x] README: Examples + Monorepo layout + per-tier table rows for the SFC tier (Vue/Svelte)
-      and the vanilla-extract tier; documented v1 VE scope-out. Shipped support only.
-- [ ] PROPOSAL surfaced to user (do NOT build unprompted) — candidates ranked by cost:
-      · SvelteKit / Nuxt — ride the EXISTING sfc tier (both are vite + vue/svelte plugins); cost =
-        example + e2e + init-detection check, likely no new server code. Cheapest.
+- [x] README: Examples + Monorepo layout + per-tier table for the SFC tier (Vue/Svelte/Astro),
+      the vanilla-extract tier, and the markup tier (set-attr/set-text, mode `jsx`, static-only);
+      Framework-support table updated — Astro/SolidStart under Vite-plugin, Nuxt under a new
+      "own-server frameworks" row; documented v1 VE + dynamic-markup scope-out.
+- [ ] STILL A PROPOSAL (do NOT build unprompted) — remaining candidates ranked by cost:
+      · SvelteKit — rides the EXISTING sfc tier (vite + svelte plugin); likely SvelteKit's own
+        server routing needs the same "own-server" mount pattern as Nuxt. Cheapest.
+      · Remix — Vite-based, own server; own-server mount pattern + probe.
       · Lit — `css`\`\`\` tagged template → may ride the EXISTING cssinjs template tier; needs a probe.
-      · Astro — `.astro` `<style>` is its own compiler (not .vue/.svelte); NEW tier, real scope.
-      · SolidStart / Qwik — JSX; CSS-modules/cssinjs likely already covered, but scoped-style story
-        differs; probe-first. Get a user pick before grinding speculative tiers.
+      · Qwik — JSX; CSS-modules/cssinjs likely covered, scoped-style story differs; probe-first.
+      Get a user pick before grinding speculative tiers.
 
 ## Open decisions (defaulted; flip if user weighs in)
-1. WIP on `feat/framework-examples`, not `main` (checkpoint discipline). Merge when done.
+1. RESOLVED (user-locked): work lands directly on `main`, never pushed. (Superseded the earlier
+   `feat/framework-examples` default.)
 2. vanilla-extract forced to default (per-file) mode, not `inlineCssInDev` (needs source attribution).
 3. "more frameworks" scoped to Vue+Svelte+VE for now; rest is a Phase 5 proposal.

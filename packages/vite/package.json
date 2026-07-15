@@ -21,12 +21,32 @@
   },
   "dependencies": {
     "@dev-sync/babel-plugin-source-locator": "workspace:*",
-    "@dev-sync/server": "workspace:*"
+    "@dev-sync/server": "workspace:*",
+    "magic-string": "^0.30.0"
+  },
+  "peerDependencies": {
+    "@astrojs/compiler-rs": "^0.3.0",
+    "svelte": "^5.0.0",
+    "vue": "^3.5.0"
+  },
+  "peerDependenciesMeta": {
+    "@astrojs/compiler-rs": {
+      "optional": true
+    },
+    "svelte": {
+      "optional": true
+    },
+    "vue": {
+      "optional": true
+    }
   },
   "devDependencies": {
+    "@astrojs/compiler-rs": "^0.3.0",
     "@types/node": "^22.0.0",
+    "svelte": "^5.0.0",
     "typescript": "^5.8.0",
     "vite": "^6.0.0",
-    "vitest": "^3.0.0"
+    "vitest": "^3.0.0",
+    "vue": "^3.5.0"
   }
 }

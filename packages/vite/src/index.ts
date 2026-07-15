@@ -46,6 +46,18 @@ export function devSync(options: DevSyncOptions = {}): Plugin[] {
     name: "dev-sync:engine",
     apply: "serve",
     configureServer(server) {
+      // In middlewareMode Vite doesn't own the HTTP server — the parent app
+      // does, and it may route `/__dev-sync/*` to its own handler (SSR, etc.)
+      // before Vite's connect stack ever sees it, so the mount silently no-ops.
+      // Warn and point at the escape hatch rather than fail mysteriously.
+      if (server.config.server?.middlewareMode) {
+        server.config.logger.warn(
+          "[dev-sync] Vite is in middlewareMode; mounting the apply engine on " +
+            `\`${MOUNT_PREFIX}\` may be bypassed by the parent server's routing. ` +
+            "Pass `devSync({ engine: false })` and mount the engine on your own " +
+            "server (see @dev-sync/server/engine → createApplyMiddleware({ prefix })).",
+        );
+      }
       // Root is the bundler's project root — every engine write is jailed under it.
       const cfg = configFromRoot(options.root ?? server.config.root);
       server.middlewares.use(MOUNT_PREFIX, createApplyMiddleware(cfg));
@@ -57,5 +69,13 @@ export function devSync(options: DevSyncOptions = {}): Plugin[] {
   plugins.push(sourceLocator({ root: options.root }));
   return plugins;
 }
+
+export {
+  sourceLocatorSveltePreprocess,
+  type SvelteStampOptions,
+  type SveltePreprocessor,
+} from "./stamp-svelte.js";
+export { sourceLocatorVue, type VueStampOptions } from "./stamp-vue.js";
+export { sourceLocatorAstro, type AstroStampOptions } from "./stamp-astro.js";
 
 export default devSync;

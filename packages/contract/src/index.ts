@@ -160,10 +160,21 @@ export type AddRuleChange = z.infer<typeof AddRuleChangeSchema>;
  * An attribute was added or changed on an element in the Elements panel.
  * Maps to a JSX attribute on the source element (NOT a stylesheet edit).
  */
+/**
+ * HTML/JSX attribute-name grammar. Bounds the charset (not just length) so a
+ * crafted name can't be byte-spliced into an open tag as injected markup — the
+ * server re-validates, this rejects it at the wire boundary first.
+ */
+const AttributeNameSchema = z
+  .string()
+  .min(1)
+  .max(2000)
+  .regex(/^[A-Za-z_:][\w:.-]*$/, "attribute name has illegal characters");
+
 export const SetAttrChangeSchema = z.object({
   op: z.literal("set-attr"),
   element: RequiredElementContextSchema,
-  attribute: z.string().min(1).max(2000),
+  attribute: AttributeNameSchema,
   value: z.string().max(100000),
 });
 export type SetAttrChange = z.infer<typeof SetAttrChangeSchema>;
@@ -172,7 +183,7 @@ export type SetAttrChange = z.infer<typeof SetAttrChangeSchema>;
 export const RemoveAttrChangeSchema = z.object({
   op: z.literal("remove-attr"),
   element: RequiredElementContextSchema,
-  attribute: z.string().min(1).max(2000),
+  attribute: AttributeNameSchema,
 });
 export type RemoveAttrChange = z.infer<typeof RemoveAttrChangeSchema>;
 

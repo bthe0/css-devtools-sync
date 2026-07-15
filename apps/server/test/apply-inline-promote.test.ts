@@ -369,6 +369,105 @@ describe("promote-inline-style — end-to-end through /apply (routing + mode + c
   });
 });
 
+describe("promote-inline-style — SFC templates splice an inline style attr (no class-injection path)", () => {
+  async function makeApp(workspaceRoot: string): Promise<FastifyInstance> {
+    const app = await buildServer(makeCfg(workspaceRoot));
+    apps.push(app);
+    return app;
+  }
+
+  /** Fresh workspace holding one hand-written SFC + an overrides stylesheet. */
+  function makeSfcWorkspace(relFile: string, content: string): { root: string; abs: string } {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cssync-sfc-promote-")));
+    tmpDirs.push(root);
+    const abs = path.join(root, relFile);
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.writeFileSync(abs, content, "utf8");
+    fs.mkdirSync(path.join(root, "src"), { recursive: true });
+    fs.writeFileSync(path.join(root, "src", "index.css"), "", "utf8");
+    return { root, abs };
+  }
+
+  function sfcPromote(
+    relFile: string,
+    tagName: string,
+    line: number,
+    declarations: PromoteInlineStyleChange["declarations"],
+  ): PromoteInlineStyleChange {
+    return {
+      op: "promote-inline-style",
+      className: "csync-sfc01",
+      declarations,
+      element: {
+        tagName,
+        classList: ["card"],
+        dataSourceFile: relFile,
+        dataSourceLine: line,
+        dataSourceComponent: "Card",
+      },
+    };
+  }
+
+  it("splices style=\"…\" onto a .vue element instead of writing a generated class + overrides rule", async () => {
+    const rel = "src/components/Card.vue";
+    const { root, abs } = makeSfcWorkspace(
+      rel,
+      '<template>\n  <article class="card">Hi</article>\n</template>\n',
+    );
+    const app = await makeApp(root);
+
+    const payload: CapturePayloadInput = {
+      url: "http://localhost:5399/",
+      changes: [
+        sfcPromote(rel, "article", 2, [
+          { property: "padding", value: "24px" },
+          { property: "color", value: "#abcdef" },
+        ]),
+      ],
+      applyMode: "commit",
+    };
+    const res = await app.inject({ method: "POST", url: "/apply", payload });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      applied: { mode: string; file: string }[];
+      skipped: { reason?: string }[];
+    };
+    expect(body.skipped).toHaveLength(0);
+    expect(body.applied).toHaveLength(1);
+    expect(body.applied[0]?.mode).toBe("promote");
+
+    const after = fs.readFileSync(abs, "utf8");
+    // Inline style spliced onto the stamped element; NO generated class, NO overrides rule.
+    expect(after).toMatch(/<article style="padding: 24px; color: #abcdef" class="card">/);
+    expect(after).not.toContain("csync-sfc01");
+    expect(fs.readFileSync(path.join(root, "src", "index.css"), "utf8")).toBe("");
+  });
+
+  it("refuses a dynamic :style binding on the SFC element (no clobbering live code)", async () => {
+    const rel = "src/components/Bound.vue";
+    const { root } = makeSfcWorkspace(
+      rel,
+      '<template>\n  <article :style="dyn" class="card">Hi</article>\n</template>\n',
+    );
+    const app = await makeApp(root);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/apply",
+      payload: {
+        url: "http://localhost:5399/",
+        changes: [sfcPromote(rel, "article", 2, [{ property: "padding", value: "24px" }])],
+        applyMode: "commit",
+      } satisfies CapturePayloadInput,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { applied: unknown[]; skipped: { reason?: string }[] };
+    expect(body.applied).toHaveLength(0);
+    expect(body.skipped).toHaveLength(1);
+    expect(body.skipped[0]?.reason).toMatch(/dynamic binding/i);
+  });
+});
+
 describe("applyInlinePromote — overrides parent directory handling (fix #4)", () => {
   it("promotes cleanly when the overrides file lives in a not-yet-existing nested dir (dir created)", () => {
     const { root } = makeWorkspace(null); // no index.css

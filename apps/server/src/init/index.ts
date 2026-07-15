@@ -70,7 +70,9 @@ export function planInit(workspaceRoot: string): InitPlan {
       status: "framework",
       message:
         `${report.framework} detected — dev-sync init won't edit a framework-managed build config. ` +
-        "Skipped. Add the devSync() plugin to your build manually if it exposes a Vite plugins array.",
+        "Skipped: wire it up by hand following the matching example under examples/ — the mount " +
+        "differs per framework (Nuxt/SolidStart route SSR-first and need a server middleware, not " +
+        "a Vite plugins entry; Astro exposes vite.plugins in astro.config).",
     });
   }
 

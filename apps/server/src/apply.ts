@@ -12,6 +12,7 @@ import type {
   Confidence,
   FileDiff,
   RequiredElementContext,
+  SetAttrChange,
   SkippedChange,
   TemplateResponse,
 } from "@dev-sync/contract";
@@ -23,11 +24,12 @@ import { applyInlinePromote } from "./apply-inline-promote.js";
 import { applySfcChange } from "./apply-sfc.js";
 import { applyVanillaExtractChange } from "./apply-vanilla-extract.js";
 import { applyJsxChange, describeJsxTemplate } from "./apply-jsx.js";
+import { applySfcMarkupChange } from "./apply-sfc-markup.js";
 import { computeClassListChange, isTailwindTarget } from "./classlist.js";
 import { applyCssInJsChange } from "./cssinjs.js";
 import { chooseTemplateLine, hasStyledIdentity, resolveStyledTarget } from "./cssinjs-target.js";
 import { choosePlacement, findOwningCssFile } from "./placement.js";
-import { cssSyntaxForFile, isCssLike, resolveTargetForChange } from "./resolve.js";
+import { cssSyntaxForFile, isCssLike, isSfcLike, resolveTargetForChange } from "./resolve.js";
 import {
   jailResolve,
   readWorkspaceFile,
@@ -257,6 +259,29 @@ async function applyOne(
     change.op === "set-text" ||
     change.op === "set-text-segment"
   ) {
+    // .vue/.svelte/.astro templates aren't JSX — @babel/parser can't read them.
+    // A static attr/text run in an SFC template is byte-identical HTML, so one
+    // shared line-anchored byte-splice tier serves all three frameworks. Only
+    // set-text-segment still routes to JSX (SFC segment edits aren't supported
+    // yet); everything else goes through the framework-neutral SFC tier.
+    if (isSfcLike(change.element.dataSourceFile)) {
+      if (change.op === "set-text-segment") {
+        throw new SkipChangeError(
+          "text-segment edits for SFC templates are not yet supported",
+        );
+      }
+      const res = applySfcMarkupChange(cfg.workspaceRoot, change);
+      const rel = toWorkspaceRelative(cfg.workspaceRoot, res.file);
+      return {
+        change,
+        file: rel,
+        line: res.line,
+        mode: "jsx",
+        confidence: "deterministic",
+        confidenceReason: "line-anchored byte splice on the stamped SFC element",
+        writes: [{ absFile: res.file, relFile: rel, before: res.before, after: res.after }],
+      };
+    }
     const res = applyJsxChange(cfg.workspaceRoot, change);
     const rel = toWorkspaceRelative(cfg.workspaceRoot, res.file);
     return {
@@ -273,6 +298,37 @@ async function applyOne(
 
   // --- Tier: inline-style promote -> generated class + overrides CSS rule ---
   if (change.op === "promote-inline-style") {
+    // SFC templates (.vue/.svelte/.astro) have no class-injection path: the
+    // class-list tier refuses them and the SFC markup tier refuses `class`, so
+    // there's no way to hang a generated `csync-*` class off the element. An
+    // inline `style="…"` attribute IS idiomatic and statically splice-able in an
+    // SFC template though, and the poller always sends the FULL current inline
+    // declaration set (not a delta), so overwriting the attribute wholesale is
+    // idempotent. Route SFC elements through the SFC markup tier as a set-attr
+    // style — a dynamic `:style`/`v-bind` binding there is refused, not clobbered.
+    if (isSfcLike(change.element.dataSourceFile)) {
+      const cssText = change.declarations
+        .map((d) => `${d.property}: ${d.value}`)
+        .join("; ");
+      const styleChange: SetAttrChange = {
+        op: "set-attr",
+        element: change.element,
+        attribute: "style",
+        value: cssText,
+      };
+      const res = applySfcMarkupChange(cfg.workspaceRoot, styleChange);
+      const rel = toWorkspaceRelative(cfg.workspaceRoot, res.file);
+      return {
+        change,
+        file: rel,
+        line: res.line,
+        mode: "promote",
+        confidence: "deterministic",
+        confidenceReason:
+          "inline style spliced onto the stamped SFC element (SFC templates have no class-injection path)",
+        writes: [{ absFile: res.file, relFile: rel, before: res.before, after: res.after }],
+      };
+    }
     const res = applyInlinePromote(change, cfg);
     return {
       change,

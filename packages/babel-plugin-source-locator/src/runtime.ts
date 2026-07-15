@@ -29,6 +29,28 @@ type UserRef =
  * return it (React then drives cleanup and won't call us with null); otherwise
  * we fall back to legacy null-on-unmount behavior.
  */
+/**
+ * Framework-neutral core: stash `loc` on `node` as the non-enumerable
+ * `__srcLoc` JS property. Shared by React's callback ref (`__srcLocRef` below)
+ * and the Svelte/Vue/Astro stampers — anything that can hand us a mounted DOM
+ * node can reuse this without pulling in React. Best-effort: a frozen/exotic
+ * node is silently skipped rather than throwing into app render.
+ */
+export function stampSrcLoc(node: Element, loc: SrcLoc): void {
+  try {
+    // Non-enumerable so it never shows up in for..in / spreads / devtools
+    // property lists that enumerate own keys.
+    Object.defineProperty(node, "__srcLoc", {
+      value: loc,
+      configurable: true,
+      enumerable: false,
+      writable: true,
+    });
+  } catch {
+    // Frozen/exotic node — best effort, skip.
+  }
+}
+
 export function __srcLocRef(
   file: string,
   line: number,
@@ -39,18 +61,7 @@ export function __srcLocRef(
     if (node) {
       const loc: SrcLoc = { dataSourceFile: file, dataSourceLine: line };
       if (component) loc.dataSourceComponent = component;
-      try {
-        // Non-enumerable so it never shows up in for..in / spreads / devtools
-        // property lists that enumerate own keys.
-        Object.defineProperty(node, "__srcLoc", {
-          value: loc,
-          configurable: true,
-          enumerable: false,
-          writable: true,
-        });
-      } catch {
-        // Frozen/exotic node — best effort, skip.
-      }
+      stampSrcLoc(node, loc);
     }
 
     if (typeof userRef === "function") {

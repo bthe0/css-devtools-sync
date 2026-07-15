@@ -3,8 +3,8 @@ import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { configFromRoot } from "./config.js";
-import { createApplyMiddleware } from "./middleware.js";
+import { configFromRoot } from "../src/config.js";
+import { createApplyMiddleware } from "../src/middleware.js";
 
 /** Minimal ServerResponse stand-in capturing what the middleware writes. */
 interface CapturedRes {
@@ -35,8 +35,9 @@ function makeRes(): CapturedRes {
 function invoke(
   cfg: ReturnType<typeof configFromRoot>,
   opts: { method?: string; url: string; body?: unknown; headers?: Record<string, string> },
+  mwOpts?: { prefix?: string },
 ): Promise<{ res: CapturedRes; nextCalled: boolean; json: unknown }> {
-  const mw = createApplyMiddleware(cfg);
+  const mw = createApplyMiddleware(cfg, mwOpts);
   const raw = opts.body === undefined ? "" : JSON.stringify(opts.body);
   const req = Readable.from(raw ? [Buffer.from(raw)] : []) as unknown as Parameters<typeof mw>[0];
   Object.assign(req, {
@@ -183,5 +184,45 @@ describe("createApplyMiddleware", () => {
   it("rejects GET /redo (wrong method) with 405", async () => {
     const { res } = await invoke(cfg, { method: "GET", url: "/redo" });
     expect(res.statusCode).toBe(405);
+  });
+});
+
+describe("createApplyMiddleware with a mount prefix", () => {
+  const opts = { prefix: "/__dev-sync" };
+
+  it("routes a prefixed path (POST /__dev-sync/apply)", async () => {
+    const { res, json } = await invoke(
+      cfg,
+      { url: "/__dev-sync/apply", body: { url: "http://localhost:5173/", changes: [], applyMode: "preview" } },
+      opts,
+    );
+    expect(res.statusCode).toBe(200);
+    expect(json).toEqual({ applied: [], skipped: [], needsPlacement: [], committed: false });
+  });
+
+  it("preserves the query string across prefix stripping (GET /__dev-sync/journal?limit=10)", async () => {
+    const journalDir = fs.mkdtempSync(path.join(os.tmpdir(), "dev-sync-journal-"));
+    const jcfg = configFromRoot(os.tmpdir(), { journalDir });
+    const { res, json } = await invoke(jcfg, { method: "GET", url: "/__dev-sync/journal?limit=10" }, opts);
+    expect(res.statusCode).toBe(200);
+    expect(json).toEqual({ entries: [] });
+  });
+
+  it("passes a bare prefixed path through to next() (no route)", async () => {
+    const { nextCalled, res } = await invoke(cfg, { url: "/__dev-sync/nope" }, opts);
+    expect(nextCalled).toBe(true);
+    expect(res.headersSent).toBe(false);
+  });
+
+  it("does NOT treat a same-stem sibling path as under the prefix (/__dev-syncx)", async () => {
+    // Boundary: startsWith("/__dev-sync") would falsely claim "/__dev-syncx/apply".
+    const { nextCalled, res } = await invoke(cfg, { url: "/__dev-syncx/apply" }, opts);
+    expect(nextCalled).toBe(true);
+    expect(res.headersSent).toBe(false);
+  });
+
+  it("passes non-prefixed paths through to next() (SSR fall-through)", async () => {
+    const { nextCalled } = await invoke(cfg, { url: "/some/page" }, opts);
+    expect(nextCalled).toBe(true);
   });
 });

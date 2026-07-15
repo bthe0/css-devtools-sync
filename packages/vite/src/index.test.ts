@@ -49,8 +49,9 @@ describe("devSync", () => {
     expect(enginePlugin?.apply).toBe("serve");
 
     const use = vi.fn();
+    const warn = vi.fn();
     const server = {
-      config: { root: os.tmpdir() },
+      config: { root: os.tmpdir(), server: { middlewareMode: false }, logger: { warn } },
       middlewares: { use },
     } as unknown as ViteDevServer;
 
@@ -61,6 +62,27 @@ describe("devSync", () => {
     expect(use).toHaveBeenCalledTimes(1);
     expect(use.mock.calls[0]?.[0]).toBe(MOUNT_PREFIX);
     expect(typeof use.mock.calls[0]?.[1]).toBe("function");
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("warns (but still mounts) when Vite runs in middlewareMode", async () => {
+    const enginePlugin = devSync({ root: os.tmpdir() }).find((p) => p.name === "dev-sync:engine");
+    const use = vi.fn();
+    const warn = vi.fn();
+    const server = {
+      config: { root: os.tmpdir(), server: { middlewareMode: true }, logger: { warn } },
+      middlewares: { use },
+    } as unknown as ViteDevServer;
+
+    const hook = enginePlugin!.configureServer;
+    const fn = typeof hook === "function" ? hook : hook?.handler;
+    await fn?.call(enginePlugin as never, server);
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toMatch(/middlewareMode/);
+    expect(warn.mock.calls[0]?.[0]).toMatch(/engine: false/);
+    // Mount still happens — the warn is advisory, not a bail-out.
+    expect(use).toHaveBeenCalledTimes(1);
   });
 
   it("omits the engine plugin when engine:false", () => {
