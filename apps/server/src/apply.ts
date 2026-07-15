@@ -10,6 +10,7 @@ import type {
   CaptureChange,
   CapturePayload,
   Confidence,
+  CssModuleMap,
   FileDiff,
   RequiredElementContext,
   SetAttrChange,
@@ -17,6 +18,7 @@ import type {
   TemplateResponse,
 } from "@dev-sync/contract";
 import type { Config } from "./config.js";
+import { reverseCssModuleSelector } from "./css-module-map.js";
 import { SkipChangeError } from "./errors.js";
 import { appendJournal } from "./journal.js";
 import { applyCssChange } from "./apply-css.js";
@@ -87,7 +89,7 @@ export async function applyPayload(
 
   for (const change of payload.changes) {
     try {
-      const result = await applyOne(change, cfg, log);
+      const result = await applyOne(change, cfg, log, payload.cssModuleMap);
       if ("needsPlacement" in result) {
         needsPlacement.push(change);
         continue;
@@ -251,6 +253,7 @@ async function applyOne(
   change: CaptureChange,
   cfg: Config,
   log: FastifyBaseLogger,
+  cssModuleMap: CssModuleMap | undefined,
 ): Promise<ApplyOneResult> {
   // --- Tier: markup ops -> edit JSX source directly, never a stylesheet ---
   if (
@@ -361,6 +364,53 @@ async function applyOne(
 
   if (change.op === "add-rule") {
     return applyAddRule(change, cfg, log);
+  }
+
+  // --- Short-circuit: CSS Modules hashed selector -> source selector ---
+  // A `<style module>` / `*.module.css` class compiles to an opaque hash
+  // (`._title_1ah9a_9`) that name-matches nothing in source, and the extension
+  // sends NO range for these (CSSOM coords != served compiled sheet). When the
+  // client captured the framework's own `{local -> hash}` export map, reverse
+  // the served hash to the real source selector + owning file HERE — bypassing
+  // the sourcemap resolver entirely — then route by the source file's
+  // extension: SFC `<style module>` block vs plain `.module.css`. Fail-closed:
+  // no map hit, or the reversed file doesn't resolve, falls through to the
+  // normal resolve path (which will skip-with-reason).
+  const reversed = reverseCssModuleSelector(change.selector, cssModuleMap);
+  if (reversed) {
+    const absFile = resolveExistingFile(cfg.workspaceRoot, reversed.file);
+    if (absFile) {
+      const reversedChange = { ...change, selector: reversed.selector };
+      const rel = toWorkspaceRelative(cfg.workspaceRoot, absFile);
+      if (isSfcLike(absFile)) {
+        const sfc = readWorkspaceFile(cfg.workspaceRoot, absFile);
+        const res = applySfcChange(sfc, reversedChange, { allowModule: true });
+        return {
+          change,
+          file: rel,
+          mode: "postcss",
+          confidence: "deterministic",
+          confidenceReason:
+            "served CSS-module hash reversed to its source selector via the client module export map; edited the SFC <style module> block",
+          writes: [{ absFile, relFile: rel, before: sfc, after: res.css }],
+        };
+      }
+      const source = readWorkspaceFile(cfg.workspaceRoot, absFile);
+      const res = applyCssChange(source, reversedChange, {
+        syntax: cssSyntaxForFile(absFile),
+      });
+      return {
+        change,
+        file: rel,
+        line: res.line,
+        mode: "postcss",
+        confidence: "deterministic",
+        confidenceReason:
+          "served CSS-module hash reversed to its source selector via the client module export map",
+        note: res.note,
+        writes: [{ absFile, relFile: rel, before: source, after: res.css }],
+      };
+    }
   }
 
   // --- Resolve the target file (sourcemap chain first) ---

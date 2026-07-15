@@ -28,6 +28,7 @@ import {
   extractSourceMappingURL,
   SERIALIZE_SHEETS,
   SERIALIZE_ELEMENTS,
+  SERIALIZE_CSS_MODULES,
   buildPayload,
   postApply,
 } from "./capture-core.js";
@@ -1188,20 +1189,40 @@ function getInspectedUrl() {
   });
 }
 
+/**
+ * Snapshot the page-global CSS-modules reverse map (`window.__dsCssModules`),
+ * populated at build/stamp time by the Vue stamper and React babel plugin. The
+ * serializer returns a JSON string; parse it here. Any eval failure or malformed
+ * payload yields an empty map — the channel is strictly additive, never fatal.
+ */
+function getCssModuleMap() {
+  return new Promise((resolve) => {
+    chrome.devtools.inspectedWindow.eval(SERIALIZE_CSS_MODULES, (result, err) => {
+      if (err || typeof result !== "string") return resolve({});
+      try {
+        const parsed = JSON.parse(result);
+        resolve(parsed && typeof parsed === "object" ? parsed : {});
+      } catch {
+        resolve({});
+      }
+    });
+  });
+}
+
 async function syncToSource(opts = {}) {
   const { toast = false } = opts;
   if (syncing || changes.size === 0) return;
   syncing = true;
 
   try {
-    const url = await getInspectedUrl();
+    const [url, cssModuleMap] = await Promise.all([getInspectedUrl(), getCssModuleMap()]);
     // Snapshot the exact objects we're about to POST, keyed by changeKey. The
     // 500ms poller can call addChange during the awaits below; addChange always
     // set()s a FRESH object for a key (590), so comparing identity after the
     // response tells us whether an "applied" key was since replaced by a newer,
     // never-sent edit — which we must NOT delete (see the cleanup below).
     const sent = new Map(changes);
-    const payload = buildPayload([...sent.values()], url);
+    const payload = buildPayload([...sent.values()], url, { cssModuleMap });
 
     let base;
     try {
